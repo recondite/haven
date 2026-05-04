@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haven</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #1a1d29;
+    --panel-2: #232633;
+    --text: #e8eaf0;
+    --muted: #6b7286;
+    --accent: #5e6ad2;
+    --accent-hover: #7681e4;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --border: #262a36;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+    gap: 16px;
+  }
+  .banner {
+    width: 100%;
+    max-width: 720px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .banner.ok { border-color: rgba(63, 185, 80, 0.3); }
+  .banner-text { font-size: 14px; }
+  .banner-text strong { color: var(--text); }
+  .banner-text .sub { color: var(--muted); margin-top: 2px; font-size: 12px; }
+  button, .btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    transition: background 0.15s;
+  }
+  button:hover, .btn:hover { background: var(--accent-hover); }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    background: rgba(63, 185, 80, 0.15);
+    color: var(--ok);
+  }
+  .card {
+    flex-grow: 1;
+    background: var(--panel);
+    padding: 48px 64px;
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    text-align: center;
+    border: 1px solid var(--border);
+    min-width: 360px;
+    margin-top: auto;
+    margin-bottom: auto;
+  }
+  .panel {
+    width: 100%;
+    max-width: 720px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .panel-head h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0; }
+  .panel-head .meta { color: var(--muted); font-size: 12px; }
+  .item {
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .item:first-child { border-top: 0; }
+  .item .row1 { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+  .item .subject { color: var(--text); font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .date { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  .item .row2 { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); }
+  .item .from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .badges { display: flex; gap: 6px; flex-shrink: 0; }
+  .badge { background: var(--panel-2); padding: 1px 6px; border-radius: 3px; font-size: 10px; }
+  .badge.role { background: rgba(94, 106, 210, 0.2); color: var(--accent); font-weight: 600; letter-spacing: 0.04em; }
+  .badge.owe { background: rgba(248, 81, 73, 0.18); color: var(--err); font-weight: 600; }
+  .badge.dates { background: rgba(210, 153, 34, 0.18); color: var(--warn); }
+  .badge.urg-low { background: rgba(107, 114, 134, 0.18); color: var(--muted); }
+  .badge.urg-med { background: rgba(94, 106, 210, 0.2); color: var(--accent); }
+  .badge.urg-high { background: rgba(210, 153, 34, 0.22); color: var(--warn); font-weight: 600; }
+  .badge.urg-urgent { background: rgba(248, 81, 73, 0.25); color: var(--err); font-weight: 700; letter-spacing: 0.04em; }
+  .badge.elt { background: rgba(248, 81, 73, 0.18); color: var(--err); font-weight: 700; letter-spacing: 0.04em; }
+  .badge.team { background: rgba(94, 106, 210, 0.22); color: var(--accent); font-weight: 700; letter-spacing: 0.04em; }
+  .badge.internal { background: rgba(63, 185, 80, 0.18); color: var(--ok); font-weight: 600; letter-spacing: 0.04em; }
+  .badge.filtered { background: rgba(107, 114, 134, 0.16); color: var(--muted); font-style: italic; }
+  .badge.tag-approval { background: rgba(210, 153, 34, 0.18); color: var(--warn); }
+  .badge.tag-action { background: rgba(94, 106, 210, 0.18); color: var(--accent); }
+  .badge.tag-fyi { background: var(--panel-2); color: var(--muted); }
+  .badge.tag-noise { background: var(--panel-2); color: var(--muted); opacity: 0.55; }
+  .badge.reply-needed { background: rgba(248, 81, 73, 0.22); color: var(--err); font-weight: 600; }
+  .badge.action-req {
+    background: var(--err);
+    color: white;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    box-shadow: 0 0 8px rgba(248, 81, 73, 0.5);
+    padding: 2px 8px;
+  }
+  .item.action-required {
+    border-left: 3px solid var(--err);
+    padding-left: 8px;
+    margin-left: -11px;
+  }
+  .badge.score-err { background: rgba(248, 81, 73, 0.12); color: var(--err); opacity: 0.75; }
+  .item .summary { color: var(--text); font-size: 12px; opacity: 0.75; font-style: italic; padding-top: 2px; }
+  .item .reply-line { color: var(--err); font-size: 12px; padding-top: 2px; opacity: 0.9; }
+  .item .score-error-line { color: var(--err); font-size: 11px; padding-top: 2px; opacity: 0.85; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; word-break: break-word; }
+  .item.noise { opacity: 0.55; }
+  .item .actions { display: flex; gap: 6px; padding-top: 4px; }
+  .archive-btn, .wiki-btn, .block-btn {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .archive-btn:hover, .wiki-btn:hover { background: var(--panel-2); color: var(--text); }
+  .wiki-btn.in-wiki { border-color: rgba(94, 106, 210, 0.4); color: var(--accent); }
+  .wiki-btn:disabled, .block-btn:disabled { opacity: 0.7; cursor: progress; }
+  .block-btn:hover { background: rgba(248, 81, 73, 0.12); color: var(--err); border-color: rgba(248, 81, 73, 0.4); }
+  .watch-chip {
+    background: rgba(94, 106, 210, 0.18);
+    color: var(--accent);
+    padding: 4px 6px 4px 10px;
+    border-radius: 14px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .watch-x {
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .watch-x:hover { color: var(--err); }
+  #watch-input {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 4px 10px;
+    font-size: 12px;
+    outline: none;
+    min-width: 140px;
+  }
+  #watch-input:focus { border-color: var(--accent); }
+  .watch-add-form { display: inline-flex; gap: 4px; align-items: center; }
+  .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 24px; }
+  .btn-secondary {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: var(--border); }
+  h1 {
+    margin: 0 0 8px 0;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .sub-title {
+    color: var(--muted);
+    margin-bottom: 32px;
+    font-size: 14px;
+  }
+  .counter {
+    font-size: 72px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .label {
+    color: var(--muted);
+    margin-top: 16px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .status {
+    margin-top: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ok);
+  }
+  .status.err { color: var(--err); }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+
+  <div id="gmail-banner" class="banner" hidden>
+    <div class="banner-text">
+      <strong>Gmail not connected</strong>
+      <div class="sub">Authorize Haven to read your inbox (gmail.readonly scope only)</div>
+    </div>
+    <a class="btn" href="/oauth/authorize">Connect Gmail</a>
+  </div>
+
+  <div id="gmail-banner-ok" class="banner ok" hidden>
+    <div class="banner-text">
+      <strong>Gmail connected</strong>
+      <div class="sub">Token at <code>data/secrets/gmail-token.json</code> · <a href="/oauth/authorize" style="color: var(--muted);">re-authorize</a></div>
+    </div>
+    <span class="pill"><span class="dot"></span> ready</span>
+  </div>
+
+  <div id="gmail-banner-rescope" class="banner" hidden style="border-color: rgba(210, 153, 34, 0.4);">
+    <div class="banner-text">
+      <strong>Gmail re-authorization needed</strong>
+      <div class="sub">Scope expanded to allow <em>archive</em> (label removal). Click to re-consent — same Google account, just the new scope.</div>
+    </div>
+    <a class="btn" href="/oauth/authorize">Re-authorize Gmail</a>
+  </div>
+
+  <div class="panel" id="watchlist-panel" hidden>
+    <div class="panel-head">
+      <h2>Watchlist</h2>
+      <div class="meta" style="font-size: 11px;">Keywords that auto-keep matching emails (whole-word, case-insensitive in subject).</div>
+    </div>
+    <div id="watchlist-chips" style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;"></div>
+  </div>
+
+  <div class="panel" id="gmail-panel" hidden>
+    <div class="panel-head">
+      <h2>Gmail — recent items</h2>
+      <div class="meta">
+        <span id="gmail-meta">—</span>
+        &nbsp;·&nbsp;
+        <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;" title="Hides items the LLM tagged as noise. Items remain in your Gmail inbox; this only filters the Haven view.">
+          <input type="checkbox" id="hide-noise" checked> hide noise
+        </label>
+        &nbsp;·&nbsp;
+        <button id="archive-noise-btn" class="btn-secondary" style="padding: 4px 10px; font-size: 12px;" title="Archive every cached item tagged 'noise' in Gmail (removes INBOX label — non-destructive, recoverable from All Mail).">Archive noise</button>
+        &nbsp;·&nbsp;
+        <button id="poll-btn" class="btn-secondary" style="padding: 4px 10px; font-size: 12px;" title="Click to fetch new items. Shift+Click to force re-fetch all matching items (ignores dedup).">Poll now</button>
+      </div>
+    </div>
+    <pre id="error-block" style="background:rgba(248,81,73,0.08); color:var(--err); padding:10px 12px; border:1px solid rgba(248,81,73,0.25); border-radius:6px; margin:8px 0; font-size:11px; white-space:pre-wrap; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;" hidden></pre>
+    <div id="items"></div>
+    <div class="empty" id="items-empty">No items yet — click "Poll now" to fetch from Gmail.</div>
+  </div>
+
+  <div class="card">
+    <h1>Haven</h1>
+    <div class="sub-title">Phase 1 — Gmail vertical slice</div>
+    <div class="counter" id="counter">—</div>
+    <div class="label">heartbeat ticks</div>
+    <div class="status" id="status">
+      <span class="dot"></span>
+      <span id="status-label">connecting…</span>
+    </div>
+  </div>
+
+<script>
+  const counter = document.getElementById("counter");
+  const status = document.getElementById("status");
+  const statusLabel = document.getElementById("status-label");
+  const banner = document.getElementById("gmail-banner");
+  const bannerOk = document.getElementById("gmail-banner-ok");
+  const bannerRescope = document.getElementById("gmail-banner-rescope");
+  const gmailPanel = document.getElementById("gmail-panel");
+  const itemsEl = document.getElementById("items");
+  const itemsEmpty = document.getElementById("items-empty");
+  const gmailMeta = document.getElementById("gmail-meta");
+  const pollBtn = document.getElementById("poll-btn");
+  const archiveNoiseBtn = document.getElementById("archive-noise-btn");
+  const hideNoiseEl = document.getElementById("hide-noise");
+  const errorBlock = document.getElementById("error-block");
+  const watchlistPanel = document.getElementById("watchlist-panel");
+  const watchlistChips = document.getElementById("watchlist-chips");
+
+  function showError(text) {
+    errorBlock.textContent = text;
+    errorBlock.hidden = false;
+  }
+  function clearError() {
+    errorBlock.hidden = true;
+    errorBlock.textContent = "";
+  }
+
+  // ─── Watchlist ────────────────────────────────────────
+  function renderWatchlist(keywords) {
+    const chips = (keywords || []).map(kw => `
+      <span class="watch-chip">${escapeHtml(kw)}<button class="watch-x" data-kw="${escapeHtml(kw)}" title="Remove">×</button></span>
+    `).join("");
+    const form = `
+      <form class="watch-add-form" id="watch-add-form">
+        <input type="text" id="watch-input" placeholder="+ keyword" autocomplete="off" />
+        <button type="submit" class="btn-secondary" style="padding: 4px 10px; font-size: 12px;">Add</button>
+      </form>`;
+    watchlistChips.innerHTML = chips + form;
+    watchlistPanel.hidden = false;
+  }
+
+  async function loadWatchlist() {
+    try {
+      const r = await fetch("/api/agents/gmail/watchlist");
+      if (!r.ok) return;
+      const j = await r.json();
+      renderWatchlist(j.keywords);
+    } catch (e) { /* ignore */ }
+  }
+
+  watchlistChips.addEventListener("submit", async (e) => {
+    if (!e.target.id || e.target.id !== "watch-add-form") return;
+    e.preventDefault();
+    const input = document.getElementById("watch-input");
+    const kw = (input.value || "").trim();
+    if (!kw) return;
+    try {
+      const r = await fetch("/api/agents/gmail/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: kw }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        showError(`Add watchlist failed: ${err}`);
+        return;
+      }
+      const j = await r.json();
+      renderWatchlist(j.keywords);
+    } catch (err) {
+      showError(`Watchlist add error: ${err.message}`);
+    }
+  });
+
+  watchlistChips.addEventListener("click", async (e) => {
+    const x = e.target.closest(".watch-x");
+    if (!x) return;
+    e.preventDefault();
+    const kw = x.dataset.kw;
+    try {
+      const r = await fetch(`/api/agents/gmail/watchlist/${encodeURIComponent(kw)}`, {
+        method: "DELETE",
+      });
+      if (!r.ok) return;
+      const j = await r.json();
+      renderWatchlist(j.keywords);
+    } catch (err) { /* ignore */ }
+  });
+
+  loadWatchlist();
+  hideNoiseEl.addEventListener("change", () => renderItems());
+
+  function removeFromRecent(msgId) {
+    const idx = recent.findIndex(i => i.msg_id === msgId);
+    if (idx >= 0) {
+      recent.splice(idx, 1);
+      renderItems();
+    }
+  }
+
+  async function archiveOne(msgId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "…"; }
+    try {
+      const r = await fetch(`/api/agents/gmail/items/${encodeURIComponent(msgId)}/archive`, { method: "POST" });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Archive failed:", err);
+        if (btn) { btn.disabled = false; btn.textContent = "Archive"; btn.style.color = "var(--err)"; }
+        return false;
+      }
+      removeFromRecent(msgId);
+      return true;
+    } catch (e) {
+      console.error("Archive error:", e);
+      if (btn) { btn.disabled = false; btn.textContent = "Archive"; }
+      return false;
+    }
+  }
+
+  async function archiveAllNoise() {
+    const noiseCount = recent.filter(i => i.tag === "noise").length;
+    if (noiseCount === 0) {
+      gmailMeta.textContent = "no noise items to archive";
+      return;
+    }
+    if (!confirm(`Archive ${noiseCount} noise items in Gmail? This removes the INBOX label — they remain in All Mail.`)) return;
+    archiveNoiseBtn.disabled = true;
+    archiveNoiseBtn.textContent = "Archiving…";
+    try {
+      const r = await fetch("/api/agents/gmail/archive-noise", { method: "POST" });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Bulk archive failed:", err);
+        gmailMeta.textContent = `archive failed (see console)`;
+        return;
+      }
+      const j = await r.json();
+      const archivedSet = new Set(j.archived || []);
+      for (let i = recent.length - 1; i >= 0; i--) {
+        if (archivedSet.has(recent[i].msg_id)) recent.splice(i, 1);
+      }
+      renderItems();
+      gmailMeta.textContent = `archived ${j.count} noise item${j.count === 1 ? "" : "s"} from inbox`;
+    } finally {
+      archiveNoiseBtn.disabled = false;
+      archiveNoiseBtn.textContent = "Archive noise";
+    }
+  }
+
+  archiveNoiseBtn.addEventListener("click", archiveAllNoise);
+
+  // Per-item Archive + Wiki + Block buttons (event delegation)
+  itemsEl.addEventListener("click", (e) => {
+    const archiveBtn = e.target.closest(".archive-btn");
+    if (archiveBtn) {
+      e.preventDefault();
+      const msgId = archiveBtn.dataset.msgId;
+      if (msgId) archiveOne(msgId, archiveBtn);
+      return;
+    }
+    const wikiBtn = e.target.closest(".wiki-btn");
+    if (wikiBtn) {
+      e.preventDefault();
+      const msgId = wikiBtn.dataset.msgId;
+      if (msgId) addToWiki(msgId, wikiBtn);
+      return;
+    }
+    const blockBtn = e.target.closest(".block-btn");
+    if (blockBtn) {
+      e.preventDefault();
+      const msgId = blockBtn.dataset.msgId;
+      const sender = blockBtn.dataset.sender || "(unknown)";
+      const domainToo = e.shiftKey;
+      const promptText = domainToo
+        ? `Block sender ${sender} AND its entire domain? They will never appear in Haven again.`
+        : `Block sender ${sender}? They will never appear in Haven again. (Shift+click to also block the domain.)`;
+      if (!confirm(promptText)) return;
+      if (msgId) blockSender(msgId, blockBtn, domainToo);
+    }
+  });
+
+  async function blockSender(msgId, btn, domainToo) {
+    btn.disabled = true;
+    btn.textContent = "blocking…";
+    try {
+      const r = await fetch("/api/agents/gmail/block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ msg_id: msgId, domain_too: domainToo }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Block failed:", err);
+        showError(`POST /api/agents/gmail/block → ${r.status}\n\n${err}`);
+        btn.textContent = "Block";
+        btn.disabled = false;
+        return;
+      }
+      const j = await r.json();
+      removeFromRecent(msgId);
+      gmailMeta.textContent = `blocked ${j.blocked}${j.domain_blocked ? ' (+ domain)' : ''}`;
+    } catch (e) {
+      console.error("Block error:", e);
+      showError(`Block error: ${e.message}`);
+      btn.textContent = "Block";
+      btn.disabled = false;
+    }
+  }
+
+  async function addToWiki(msgId, btn) {
+    if (btn.classList.contains("in-wiki")) {
+      // Already ingested — re-ingest? Confirm.
+      if (!confirm("Already added. Re-ingest this email and update wiki pages?")) return;
+    }
+    btn.disabled = true;
+    btn.textContent = "ingesting…";
+    try {
+      const r = await fetch("/api/wiki/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "gmail", msg_id: msgId }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Wiki ingest failed:", err);
+        showError(`POST /api/wiki/ingest → ${r.status}\n\n${err}`);
+        btn.textContent = "+ Wiki";
+        btn.disabled = false;
+        return;
+      }
+      const j = await r.json();
+      const item = recent.find(i => i.msg_id === msgId);
+      if (item) {
+        item.wiki_ingested = true;
+        renderItems();
+      }
+      gmailMeta.textContent = `wiki: ${j.files_written.length} page${j.files_written.length === 1 ? "" : "s"} touched (${j.files_written.join(", ")})`;
+    } catch (e) {
+      console.error("Wiki ingest error:", e);
+      showError(`Wiki ingest error: ${e.message}`);
+      btn.textContent = "+ Wiki";
+      btn.disabled = false;
+    }
+  }
+
+  // Current set of items being shown. Replaced wholesale on each poll (so items that
+  // drop out of "is:important is:unread in:inbox" disappear), and incrementally added
+  // to via SSE between polls.
+  const recent = [];
+  const RECENT_MAX = 200;
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+
+  function fmtFrom(item) {
+    const name = item.sender_name || item.sender_email || "(unknown)";
+    const company = item.sender_company || item.sender_domain || "";
+    const sep = company ? " · " : "";
+    return escapeHtml(name) + escapeHtml(sep) + escapeHtml(company);
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      if (isNaN(d)) return iso.slice(0, 30);
+      return d.toLocaleString();
+    } catch { return iso.slice(0, 30); }
+  }
+
+  function renderItems() {
+    if (recent.length === 0) {
+      itemsEmpty.hidden = false;
+      itemsEl.innerHTML = "";
+      return;
+    }
+    const hideNoise = hideNoiseEl.checked;
+    const filtered = hideNoise ? recent.filter(i => i.tag !== "noise") : recent;
+    // Sort: action_required pinned to top, then by urgency, then date desc.
+    const urgRank = { urgent: 0, high: 1, med: 2, low: 3 };
+    const visible = [...filtered].sort((a, b) => {
+      const aa = a.action_required ? 0 : 1;
+      const bb = b.action_required ? 0 : 1;
+      if (aa !== bb) return aa - bb;
+      const ua = urgRank[a.urgency] ?? 4;
+      const ub = urgRank[b.urgency] ?? 4;
+      if (ua !== ub) return ua - ub;
+      const ta = Date.parse(a.date) || 0;
+      const tb = Date.parse(b.date) || 0;
+      return tb - ta;
+    });
+    const hiddenCount = recent.length - filtered.length;
+    if (visible.length === 0) {
+      itemsEmpty.hidden = false;
+      itemsEmpty.textContent = hiddenCount
+        ? `All ${hiddenCount} items hidden as noise — uncheck "hide noise" to see them.`
+        : "No items yet — click \"Poll now\" to fetch from Gmail.";
+      itemsEl.innerHTML = "";
+      return;
+    }
+    itemsEmpty.hidden = true;
+    itemsEl.innerHTML = visible.map(item => {
+      const role = (item.garth_recipient_role || "").toUpperCase();
+      const roleBadge = role && role !== "BCC"
+        ? `<span class="badge role">${role} ME</span>`
+        : "";
+      const urgency = (item.urgency || "").toLowerCase();
+      const urgencyBadge = urgency
+        ? `<span class="badge urg-${urgency}">${urgency.toUpperCase()}</span>`
+        : "";
+      const tag = (item.tag || "").toLowerCase();
+      const tagBadge = tag
+        ? `<span class="badge tag-${tag}" title="LLM tag: ${tag}">${tag}</span>`
+        : "";
+      const actionRequiredBadge = item.action_required
+        ? `<span class="badge action-req" title="LLM flagged: Garth must personally act on this">ACTION</span>`
+        : "";
+      // Filter-pass flags: ELT/team are highest signal, then internal Ayar.
+      const eltBadge = item.is_elt ? `<span class="badge elt" title="ELT member">ELT</span>` : "";
+      const teamBadge = (item.is_team && !item.is_elt) ? `<span class="badge team" title="Garth's team">TEAM</span>` : "";
+      const internalBadge = (item.from_ayar && !item.is_elt && !item.is_team) ? `<span class="badge internal" title="Internal Ayar Labs sender">INTERNAL</span>` : "";
+      const filteredBadge = (item.filter_status === "reject")
+        ? `<span class="badge filtered" title="${escapeHtml(item.filter_reason || 'filtered out')}">filtered</span>`
+        : "";
+      const replyNeededBadge = item.reply_needed
+        ? `<span class="badge reply-needed" title="${escapeHtml(item.reply_reason || 'Reply needed per LLM analysis')}">reply needed</span>`
+        : "";
+      const owesReplyBadge = (!item.reply_needed && item.last_inbound_at && !item.garth_owns_last_turn)
+        ? `<span class="badge owe" title="Last message in this thread is from someone else — heuristic">owes reply</span>`
+        : "";
+      const scoreErrBadge = item.score_error
+        ? `<span class="badge score-err" title="${escapeHtml(item.score_error)}">⚠ score</span>`
+        : "";
+      const datesBadge = (item.dates_mentioned && item.dates_mentioned.length)
+        ? `<span class="badge dates" title="${escapeHtml(item.dates_mentioned.join(', '))}">📅 ${item.dates_mentioned.length}</span>`
+        : "";
+      const threadBadge = (item.thread_message_count > 1)
+        ? `<span class="badge" title="thread has ${item.thread_message_count} messages">↩ ${item.thread_message_count}</span>`
+        : "";
+      const attachBadge = item.has_attachment
+        ? `<span class="badge">📎 ${item.attachment_count}</span>`
+        : "";
+      const labelBadges = (item.labels || [])
+        .filter(l => !l.startsWith("CATEGORY_") && !l.startsWith("Label_") && l !== "INBOX" && l !== "UNREAD" && l !== "IMPORTANT")
+        .slice(0, 2)
+        .map(l => `<span class="badge">${escapeHtml(l)}</span>`)
+        .join("");
+      const summaryLine = item.summary
+        ? `<div class="summary" title="${escapeHtml(item.suggested_action || '')}">${escapeHtml(item.summary)}</div>`
+        : "";
+      const replyLine = (item.reply_needed && item.suggested_reply)
+        ? `<div class="reply-line">↳ ${escapeHtml(item.suggested_reply)}</div>`
+        : "";
+      const itemClass = [
+        "item",
+        tag === "noise" ? "noise" : "",
+        item.action_required ? "action-required" : "",
+      ].filter(Boolean).join(" ");
+      return `
+        <div class="${itemClass}">
+          <div class="row1">
+            <a class="subject" href="${escapeHtml(item.deeplink)}" target="_blank" rel="noopener" title="${escapeHtml(item.subject)}">${escapeHtml(item.subject || "(no subject)")}</a>
+            <span class="date">${escapeHtml(fmtDate(item.date))}</span>
+          </div>
+          <div class="row2">
+            <span class="from">${fmtFrom(item)}</span>
+            <span class="badges">
+              ${actionRequiredBadge}${eltBadge}${teamBadge}${internalBadge}${urgencyBadge}${tagBadge}${replyNeededBadge}${owesReplyBadge}${filteredBadge}${scoreErrBadge}${roleBadge}${datesBadge}${threadBadge}${attachBadge}${labelBadges}
+            </span>
+          </div>
+          ${summaryLine}
+          ${replyLine}
+          ${item.score_error ? `<div class="score-error-line">⚠ score: ${escapeHtml(item.score_error)}</div>` : ""}
+          <div class="actions">
+            <button class="archive-btn" data-msg-id="${escapeHtml(item.msg_id)}" title="Archive in Gmail (removes INBOX label, recoverable from All Mail)">Archive</button>
+            <button class="wiki-btn ${item.wiki_ingested ? 'in-wiki' : ''}" data-msg-id="${escapeHtml(item.msg_id)}" title="Send this email to the curated wiki — the LLM creates/updates the relevant people, company, event, and topic pages.">${item.wiki_ingested ? '✓ in wiki' : '+ Wiki'}</button>
+            <button class="block-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-sender="${escapeHtml(item.sender_email || '')}" title="Add this sender to the dynamic block list — they'll never appear in Haven again. Shift+click to also block the entire domain.">Block</button>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function pushItem(item) {
+    if (recent.find(i => i.msg_id === item.msg_id)) return;
+    recent.unshift(item);
+    if (recent.length > RECENT_MAX) recent.length = RECENT_MAX;
+    renderItems();
+  }
+
+  async function refreshGmailStatus() {
+    try {
+      const r = await fetch("/api/auth/gmail/status");
+      const j = await r.json();
+      const needRescope = j.authed && !j.scopes_ok;
+      banner.hidden = j.authed;
+      bannerOk.hidden = !j.authed || needRescope;
+      bannerRescope.hidden = !needRescope;
+      gmailPanel.hidden = !j.authed;
+    } catch (e) { /* ignore */ }
+  }
+
+  async function loadCachedItems() {
+    try {
+      const r = await fetch("/api/agents/gmail/items");
+      if (!r.ok) return;
+      const j = await r.json();
+      recent.length = 0;
+      recent.push(...(j.items || []));
+      renderItems();
+      if (recent.length) gmailMeta.textContent = `${recent.length} cached · click "Poll now" to refresh`;
+    } catch (e) { /* ignore */ }
+  }
+
+  async function pollNow(force = false) {
+    pollBtn.disabled = true;
+    pollBtn.textContent = force ? "Re-fetching…" : "Polling…";
+    gmailMeta.textContent = force ? "force re-fetching all…" : "fetching…";
+    try {
+      const url = force ? "/api/agents/gmail/poll?force=true" : "/api/agents/gmail/poll";
+      const r = await fetch(url, { method: "POST" });
+      if (!r.ok) {
+        const err = await r.text();
+        gmailMeta.textContent = `poll failed (HTTP ${r.status})`;
+        gmailMeta.style.color = "var(--err)";
+        showError(`POST /api/agents/gmail/poll → ${r.status}\n\n${err}`);
+        console.error("Poll failed:", err);
+        return;
+      }
+      gmailMeta.style.color = "";
+      clearError();
+      const j = await r.json();
+      // Replace the list with the current matching set so items that dropped out
+      // of "is:important is:unread in:inbox" disappear.
+      recent.length = 0;
+      recent.push(...(j.items || []));
+      renderItems();
+      const noiseCount = (j.items || []).filter(i => i.tag === "noise").length;
+      const totalSilenced = (j.previously_rejected || 0) + (j.rejected_by_filter || 0);
+      let line = `${j.queried_total} in inbox`;
+      if (j.new_count) line += ` · ${j.new_count} new`;
+      if (j.from_cache) line += ` · ${j.from_cache} cached`;
+      if (totalSilenced) line += ` · ${totalSilenced} silenced`;
+      if (j.scored_by_llm) line += ` · ${j.scored_by_llm} LLM-scored`;
+      if (noiseCount && hideNoiseEl.checked) line += ` · ${noiseCount} noise hidden`;
+      if (j.errors && j.errors.length) line += ` · ${j.errors.length} error${j.errors.length > 1 ? "s" : ""}`;
+      gmailMeta.textContent = line;
+    } catch (e) {
+      gmailMeta.textContent = `error: ${e.message}`;
+    } finally {
+      pollBtn.disabled = false;
+      pollBtn.textContent = "Poll now";
+    }
+  }
+
+  pollBtn.addEventListener("click", (e) => pollNow(e.shiftKey));
+
+  refreshGmailStatus().then(() => {
+    if (!gmailPanel.hidden) loadCachedItems();
+  });
+  renderItems();
+
+  if (new URLSearchParams(location.search).get("gmail") === "connected") {
+    history.replaceState(null, "", "/");
+  }
+
+  const es = new EventSource("/api/sse/stream");
+
+  es.addEventListener("heartbeat", (e) => {
+    const data = JSON.parse(e.data);
+    counter.textContent = data.n;
+    status.classList.remove("err");
+    statusLabel.textContent = "live";
+  });
+
+  es.addEventListener("auth_changed", (e) => {
+    refreshGmailStatus();
+  });
+
+  es.addEventListener("gmail_item", (e) => {
+    pushItem(JSON.parse(e.data));
+  });
+
+  es.addEventListener("gmail_poll_complete", (e) => {
+    const d = JSON.parse(e.data);
+    gmailMeta.textContent = `+${d.new_count} new · ${d.queried_total} in window · ${d.total_seen_all_time} seen total`;
+  });
+
+  es.onerror = () => {
+    status.classList.add("err");
+    statusLabel.textContent = "disconnected — retrying";
+  };
+</script>
+</body>
+</html>

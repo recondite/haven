@@ -1,0 +1,99 @@
+# Slack app manifest for Haven (Garth's local AR dashboard)
+#
+# How to install:
+# 1. https://api.slack.com/apps  →  click your existing "Haven" app (App ID A0B1BC0E612)
+# 2. Left rail → "App Manifest"
+# 3. Switch tab to YAML, paste this entire file (replacing whatever is there), click "Save Changes"
+# 4. Confirm changes, then click "Install to Workspace" (or "Reinstall to Workspace") at the top
+#    — this activates the new bot scopes. Your existing xoxb- and xapp-1- tokens stay valid.
+# 5. Done. No Request URLs needed — everything runs over Socket Mode.
+
+display_information:
+  name: Haven
+  description: Garth's local AR dashboard companion — pushes urgent items, captures action items via DM.
+  background_color: "#0f1117"
+  long_description: >-
+    Haven is a personal, laptop-only assistant that aggregates ARs from email, Slack,
+    JIRA, Linear, Otter, and Freshservice. This Slack app provides the bidirectional
+    channel: outbound digest/urgent DMs, inbound 'ar:' or '/ar' capture, and reply
+    buttons on alert messages. Single-user, single-workspace, runs entirely over
+    Socket Mode (no public URL).
+
+features:
+  bot_user:
+    display_name: Haven
+    always_online: true
+  slash_commands:
+    - command: /ar
+      description: Capture an action item — sends to Linear (CIO ARs project)
+      usage_hint: "<title> | <optional notes>"
+      should_escape: false
+    - command: /haven
+      description: Quick commands — status, snooze, done
+      usage_hint: "status | done <id> | snooze <id> <2h|1d>"
+      should_escape: false
+
+oauth_config:
+  scopes:
+    # === BOT TOKEN (xoxb-) — used for WRITING (DMs, alerts, slash command replies) ===
+    # Posts appear as "Haven". Bot can only see channels it's explicitly added to,
+    # which is fine because all reads go through the user token below.
+    bot:
+      # Slash commands (/ar, /haven)
+      - commands
+      # Post messages (DMs, alerts, channel replies if @-mentioned)
+      - chat:write
+      # Direct messages with the bot — receiving 'ar:' captures
+      - im:write
+      - im:history
+      - im:read
+      # Bot identity for @-mentions in channels Garth invites it to
+      - app_mentions:read
+      # Looking up users/profiles for enrichment
+      - users:read
+      - users:read.email
+      # React with emoji on items the bot processes
+      - reactions:read
+
+    # === USER TOKEN (xoxp-) — used for READING (every channel Garth can see) ===
+    # Acts as Garth. Reads all public channels, all private channels Garth is in,
+    # DMs, group DMs, and supports workspace-wide search. Bot does NOT need to be
+    # added to any channel for these reads to work.
+    #
+    # Security note: this token impersonates Garth. Stored in .env only,
+    # gitignored. Rotate at end of build.
+    user:
+      # Read every public channel Garth can see, without bot needing to join
+      - channels:history
+      - channels:read
+      # Read every private channel Garth is in
+      - groups:history
+      - groups:read
+      # Read Garth's DMs (for full email-style "Reply Needed" detection on Slack)
+      - im:history
+      - im:read
+      # Read group DMs
+      - mpim:history
+      - mpim:read
+      # Workspace-wide message search — gets us the cross-channel mentions feed
+      - search:read
+      # User profile reads for enrichment
+      - users:read
+      - users:read.email
+
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.im        # DMs to the bot (inbound 'ar:' capture)
+      - app_mention       # @Haven mentions in channels
+  interactivity:
+    is_enabled: true      # required for the buttons on urgent DMs (✓ Done, → Linear, 🔇 Snooze)
+  socket_mode_enabled: true
+  token_rotation_enabled: false
+
+# After saving the manifest, also do this once:
+# 1. Basic Information → App-Level Tokens → click your existing token
+#    → confirm scopes include: connections:write, app_mentions:read
+#    → if missing, regenerate with both scopes (note: the xapp-1- token will change)
+# 2. Event Subscriptions → ensure toggle is ON (manifest sets this, but verify)
+# 3. Interactivity & Shortcuts → ensure toggle is ON (manifest sets this, but verify)

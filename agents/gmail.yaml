@@ -1,0 +1,194 @@
+name: gmail
+enabled: true
+poll_seconds: 300
+
+# Gmail search query. Multiple list entries run independently and are deduped,
+# but space-separated terms within one query are AND'd by Gmail.
+queries:
+  - "is:unread is:important in:inbox"
+
+# ─── Never-keep (top priority — beats every accept rule) ────
+# Patterns here always reject, even from Ayar people. Use for "structural" noise
+# that isn't an AR regardless of who sent it: calendar invites, OOO/PTO, password
+# resets, receipts/statements. Tuned conservatively to avoid false positives.
+never_keep:
+  subject_patterns:
+    # Calendar invitations / scheduling — Gmail's calendar UI handles these
+    - "^Invitation: "
+    - "^Updated invitation: "
+    - "^Updated event: "
+    - "^Accepted: "
+    - "^Declined: "
+    - "^Tentative: "
+    - "^Canceled: "
+    - "^Cancelled: "
+    - "^Reschedule:? "
+    - "^New event: "
+    # OOO / PTO / OTO / out-of-office variations — covers all forms regardless of name
+    - "^Out of office\\b"
+    - "\\bautomatic reply\\b"
+    - "\\bauto-?reply\\b"
+    # Calendar event subjects of the form "<Name> PTO" / "<Name> OOO" / "<Name> OTO"
+    # (with or without "@ <date>" suffix). The negative lookahead avoids matching
+    # legit acronyms in unrelated contexts.
+    - "\\b[A-Z][\\w'-]* (?:PTO|OOO|OTO)\\b"
+    - "\\b(?:PTO|OOO|OTO) @\\b"
+    - "^(?:PTO|OOO|OTO)\\b"
+    - "\\bon PTO\\b"
+    - "\\bgoing OOO\\b"
+    # Password resets / account recovery — every variant. If Garth genuinely needs
+    # his own password reset he'll go to Gmail directly; this app should never
+    # surface password emails for anyone (himself included — they aren't ARs).
+    - "\\bPassword Reset\\b"
+    - "\\bReset (?:Your )?Password\\b"
+    - "\\bForgot (?:Your )?Password\\b"
+    - "\\bPassword Recovery\\b"
+    - "\\bRecover (?:Your )?Account\\b"
+    - "\\bPassword (?:Change|Update|Expir(?:ed|ing|ation))\\b"
+    - "\\bAccount (?:Verification|Recovery|Reactivation)\\b"
+    - "\\b(?:Verify|Confirm) (?:Your )?(?:Email|Account|Identity)\\b"
+    - "\\bMagic Link\\b"
+    - "\\bSign-?in (?:Code|Link|Verification)\\b"
+    - "\\bOne-?Time (?:Code|Password|Link)\\b"
+    # Receipts / billing statements
+    - "^Your invoice\\b"
+    - "^Receipt for\\b"
+    - "^Your .* receipt\\b"
+    - "\\bstatement (?:available|ready)\\b"
+
+# ─── Hard-keep (highest priority) ──────────────────────────
+# These bypass the LLM filter and always show. The LLM still scores them
+# (so we get tag/urgency/reply_needed) but cannot tag them as "noise".
+keep:
+  # Gmail label names that auto-accept (case-insensitive). Beats never_keep —
+  # anything you've tagged with one of these labels in Gmail is always shown.
+  labels:
+    - Ayar-ELT
+    # Add more here as needed (e.g. "Ayar-Team", "Important-Customers")
+
+  # Domains whose noreply/notifications/alerts senders are NOT auto-rejected by
+  # the static reject patterns. Real business actions can come from these
+  # automated addresses (Google Drive shares, Calendar invites from Ayar, etc.) —
+  # so they bypass the sender-pattern reject and go to the LLM instead, which
+  # decides based on body content.
+  noreply_allowlist_domains:
+    - google.com
+    - googleapis.com
+    - googlegroups.com
+    - docusign.net
+    - docusign.com
+
+  domains:
+    - ayarlabs.com
+
+  # Garth's executive leadership team — extra urgency boost (auto-bump to >= med).
+  elt:
+    - amelia@ayarlabs.com
+    - chen@ayarlabs.com
+    - dan@ayarlabs.com
+    - garth@ayarlabs.com
+    - jesse@ayarlabs.com
+    - kristine@ayarlabs.com
+    - lisa@ayarlabs.com
+    - mark@ayarlabs.com
+    - m.gloss@ayarlabs.com
+    - ozlem.saborio@ayarlabs.com
+    - rory.mcinerney@ayarlabs.com
+    - sankara.venkateswaran@ayarlabs.com
+    - scott@ayarlabs.com
+    - vivek.gupta@ayarlabs.com
+    - vivek@ayarlabs.com
+    - vladimir@ayarlabs.com
+
+  # Garth's direct reports — keep + flag.
+  team:
+    - adam@ayarlabs.com
+    - andrew@ayarlabs.com
+    - archie@ayarlabs.com
+    - ayarit@ayarlabs.com
+    - chris.martin@ayarlabs.com
+    - david@ayarlabs.com
+    - ernesto@ayarlabs.com
+    - grace@ayarlabs.com
+    - jeff.cotter@ayarlabs.com
+    - joanna@ayarlabs.com
+    - johanna.toledo@ayarlabs.com
+    - michael@ayarlabs.com
+    - oscar.fernandez@ayarlabs.com
+    - swetha@ayarlabs.com
+
+  # External contacts Garth has working history with. Auto-grown from reply
+  # history (anyone Garth has replied to) and wiki ingests. Garth can also
+  # edit this list directly.
+  approved_external:
+    - mageorge@cresa.com
+
+# ─── Hard-reject (never reaches LLM scoring; saves cost) ────
+# Items matched here get tag="noise" set deterministically and are hidden by
+# default in the UI. Toggle "hide noise" to inspect.
+reject:
+  # Sender-localpart patterns (case-insensitive regex). Matched against the local
+  # part of the address (everything before @). Anchored on @ so we catch e.g.
+  # `okta-alerts@okta.com`, `acme-noreply@acme.com`, `support-billing@vendor.io`.
+  sender_patterns:
+    - "(?:^|[\\w.+-]*[-_.])(?:noreply|no-reply|donotreply|do-not-reply)@"
+    - "(?:^|[\\w.+-]*[-_.])(?:notifications?|notify|notice)@"
+    - "(?:^|[\\w.+-]*[-_.])(?:alerts?|alarm)@"
+    - "(?:^|[\\w.+-]*[-_.])(?:autonotification|auto-notification|automated)@"
+    - "(?:^|[\\w.+-]*[-_.])(?:billing|invoicing|receipts?|statements?)@"
+    - "(?:^|[\\w.+-]*[-_.])(?:marketing|newsletter|digest|news|updates?)@"
+    - "(?:^|[\\w.+-]*[-_.])(?:bounce|postmaster|mailer-daemon)@"
+    - "^email@"
+    - "^reply@"
+
+  # Subject prefixes/keywords (case-insensitive)
+  subject_patterns:
+    # Calendar accept/decline/cancel/tentative
+    - "^Accepted: "
+    - "^Declined: "
+    - "^Tentative: "
+    - "^Canceled: "
+    - "^Cancelled: "
+    - "^Updated invitation: "
+    - "^Invitation: "
+    # OOO / PTO
+    - "^Out of office\\b"
+    - "^OOO\\b"
+    - "\\bautomatic reply\\b"
+    - "\\bauto-reply\\b"
+    - "\\bon PTO\\b"
+    # Newsletters / digests / marketing
+    - "\\bnewsletter\\b"
+    - "\\bweekly digest\\b"
+    - "\\bdaily digest\\b"
+    - "\\bweekly roundup\\b"
+    - "\\bmonthly recap\\b"
+    # Receipts / statements / billing
+    - "^Your invoice\\b"
+    - "^Receipt for\\b"
+    - "\\bstatement (?:available|ready)\\b"
+    - "^Your .* receipt\\b"
+    # Event / webinar invites with explicit RSVP/register language — anything
+    # ambiguous (or from Ayar people inviting Garth to dinner) goes to LLM.
+    - "\\byou'?re invited\\b"
+    - "\\bregister (?:now|today)\\b"
+    - "\\bregister for\\b.*\\b(?:webinar|workshop|summit|conference)\\b"
+    - "^(?:Reminder|Last chance):\\b.*\\b(?:webinar|register|RSVP)\\b"
+    # Password reset / account verification (LLM decides if it's for Garth specifically)
+    # — handled in scoring prompt, not here, because the body matters.
+    # Generic vendor weekly/daily status digests — LLM still gets to call the
+    # ones that mention Garth specifically.
+    - "\\bweekly (?:roundup|recap)\\b"
+    - "\\bdaily summary\\b"
+
+  # Domains that send only automated noise to Garth
+  # Note: do NOT add ayarlabs.com or domains that mix automated + real human emails.
+  domains: []
+
+# ─── Approved senders auto-grow ────────────────────────────
+# When true, any sender Garth has replied to (last_outbound_at is set on the thread)
+# is treated as approved on subsequent emails — even if no static rule matches.
+auto_approve_replied_senders: true
+
+# When true, any sender of an email Garth has ingested into the wiki is approved.
+auto_approve_wiki_senders: true

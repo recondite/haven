@@ -1,0 +1,56 @@
+# Slack agent config — Phase 2.0
+# Targets:
+#   - Direct messages (1:1 IMs and group MPIMs) addressed to Garth
+#   - Any @-mention of Garth across all channels he can read
+#   - All messages posted in #elt-2026 (action items for the team or him)
+#   - All messages from Mark Wade (CEO) anywhere Garth shares a conversation
+name: slack
+enabled: true
+poll_seconds: 300                # 5 minutes (driven by orchestrator in main.py)
+
+identity:
+  user_id: UQDM6QPST          # Garth Thompson
+  display_name: garth
+  email: garth@ayarlabs.com
+
+watched_channels:
+  - id: C0AAB842Q2J
+    name: elt-2026
+    reason: ELT updates and action items for the team or Garth
+
+watched_users:
+  - id: U6A6Y8000
+    name: Mark Wade
+    email: mark@ayarlabs.com
+    reason: CEO — anything from Mark should surface
+
+# Lookback for first-time pulls per channel (seconds). After that the cursor
+# moves forward and only new messages are pulled. 2 days keeps initial LLM
+# scoring tractable; subsequent polls are cache-fast.
+initial_lookback_seconds: 172800  # 2 days
+
+# Slack message types we always include (DMs always count as inbound to Garth).
+include:
+  dms: true                     # 1:1 IM channels
+  group_dms: true               # mpim channels
+  mentions: true                # any channel where someone @'d Garth
+  watched_channels: true        # everything in watched_channels above
+  watched_users: true           # all messages from watched_users where we can read them
+
+# Things we hard-skip without LLM scoring (mirrors the Gmail filter pattern).
+never_keep:
+  - bot_message               # subtype=bot_message — automated alerts; will be reviewed via Freshservice/JIRA agents
+  - channel_join              # join/leave notices
+  - channel_leave
+  - channel_topic
+  - channel_purpose
+  - reminder_add
+  - file_share_only           # message body empty, only a file (we still log but skip LLM if no text)
+
+# Score-prompt knobs (slack tone is tighter than email; system prompt encodes this)
+scoring:
+  # action_required = TRUE only when message asks Garth to do something concrete
+  # reply_needed = TRUE when message asks a question of Garth or expects acknowledgment
+  # urgency floor for #elt-2026 = "med" so ELT items never get buried
+  elt_urgency_floor: med
+  mark_urgency_floor: med       # CEO bumps urgency floor

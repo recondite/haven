@@ -126,6 +126,27 @@ class CursorStore:
             )
             self._conn.commit()
 
+    def clear_cached(self, source: str) -> int:
+        """Wipe every cached payload for a source (used when 'unread' semantics
+        change and old payloads no longer reflect what should be visible)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM cached_items WHERE source = ?",
+                (source,),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
+    def delete_cached(self, source: str, item_id: str) -> bool:
+        """Remove a single cached payload (e.g. user dismissed a Slack item)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM cached_items WHERE source = ? AND item_id = ?",
+                (source, item_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     def clear_rejections(self, source: str, item_ids: list[str] | None = None) -> int:
         """Clear rejection markers so the next poll re-evaluates these items."""
         with self._lock:
@@ -192,11 +213,18 @@ class CursorStore:
     def list_cached(self, source: str, limit: int = 200) -> list[dict]:
         with self._lock:
             cur = self._conn.execute(
-                "SELECT payload_json FROM cached_items WHERE source = ? "
+                "SELECT payload_json, "
+                "  CAST(strftime('%s', fetched_at) AS INTEGER) AS fetched_at_unix "
+                "FROM cached_items WHERE source = ? "
                 "ORDER BY fetched_at DESC LIMIT ?",
                 (source, limit),
             )
-            return [json.loads(row[0]) for row in cur.fetchall()]
+            out: list[dict] = []
+            for row in cur.fetchall():
+                payload = json.loads(row[0])
+                payload.setdefault("cached_at", row[1] or 0)
+                out.append(payload)
+            return out
 
 
 cursor_store = CursorStore(config.DATA_DIR / "state" / "cursors.sqlite")

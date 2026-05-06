@@ -134,6 +134,7 @@ class GmailItem:
     def summary(self) -> dict[str, Any]:
         """Lightweight payload for SSE — strip body_text and raw fields."""
         return {
+            "source": "gmail",
             "msg_id": self.msg_id,
             "thread_id": self.thread_id,
             "subject": self.subject,
@@ -165,7 +166,8 @@ class GmailFetcher:
         self.queries = queries
         self._user_email: str | None = None
         self._labels_map: dict[str, str] | None = None
-        self._haven_label_id: str | None = None
+        # Cache of {label_name_lower: label_id} for labels we've created or resolved.
+        self._label_ids: dict[str, str] = {}
 
     def _service(self):
         creds = self.auth.credentials()
@@ -205,13 +207,15 @@ class GmailFetcher:
         }
         return self._labels_map
 
-    async def ensure_haven_label(self) -> str:
-        """Return the Gmail label ID for "Haven", creating the label on first use.
+    async def ensure_label(self, name: str) -> str:
+        """Return the Gmail label ID for `name`, creating it on first use.
 
-        Cached on the fetcher instance after the first lookup.
+        Cached on the fetcher instance per label name.
         """
-        if self._haven_label_id is not None:
-            return self._haven_label_id
+        key = name.lower()
+        cached = self._label_ids.get(key)
+        if cached is not None:
+            return cached
         service = self._service()
 
         def _list_labels() -> dict:
@@ -219,9 +223,9 @@ class GmailFetcher:
 
         listing = await asyncio.to_thread(_list_labels)
         for lbl in listing.get("labels", []) or []:
-            if (lbl.get("name") or "").lower() == "haven":
-                self._haven_label_id = lbl["id"]
-                return self._haven_label_id
+            if (lbl.get("name") or "").lower() == key:
+                self._label_ids[key] = lbl["id"]
+                return lbl["id"]
 
         def _create() -> dict:
             return (
@@ -230,7 +234,7 @@ class GmailFetcher:
                 .create(
                     userId="me",
                     body={
-                        "name": "Haven",
+                        "name": name,
                         "labelListVisibility": "labelShow",
                         "messageListVisibility": "show",
                     },
@@ -239,20 +243,24 @@ class GmailFetcher:
             )
 
         created = await asyncio.to_thread(_create)
-        self._haven_label_id = created["id"]
+        self._label_ids[key] = created["id"]
         # Invalidate the labels_map cache so future label translations include this one.
         self._labels_map = None
-        return self._haven_label_id
+        return created["id"]
 
-    async def label_with_haven(self, msg_ids: list[str]) -> int:
-        """Apply the Haven label to every given message ID in one batch call.
+    async def ensure_haven_label(self) -> str:
+        """Backward-compat wrapper — every loaded email gets the Haven label."""
+        return await self.ensure_label("Haven")
+
+    async def label_messages(self, msg_ids: list[str], label_name: str) -> int:
+        """Apply `label_name` to every given message ID in one batchModify call.
 
         Returns the count of IDs labeled. Adding a label that's already on a
         message is a no-op server-side, so this is safe to call repeatedly.
         """
         if not msg_ids:
             return 0
-        label_id = await self.ensure_haven_label()
+        label_id = await self.ensure_label(label_name)
         service = self._service()
 
         def _batch() -> None:
@@ -263,6 +271,10 @@ class GmailFetcher:
 
         await asyncio.to_thread(_batch)
         return len(msg_ids)
+
+    async def label_with_haven(self, msg_ids: list[str]) -> int:
+        """Backward-compat wrapper — keep existing call sites working."""
+        return await self.label_messages(msg_ids, "Haven")
 
     async def _fetch_thread_state(self, thread_id: str, user_email: str) -> dict:
         if not thread_id:

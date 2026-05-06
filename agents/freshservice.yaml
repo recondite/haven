@@ -1,0 +1,33 @@
+# Freshservice agent config — Phase 2.1
+# Pulls open IT tickets where Garth is the agent OR the ticket is unassigned.
+# Tickets persist in Haven as long as they remain Open/Pending in Freshservice.
+name: freshservice
+enabled: true
+poll_seconds: 3600               # 60 minutes (driven by orchestrator in main.py)
+
+identity:
+  email: garth@ayarlabs.com       # used to resolve agent_id via /api/v2/agents/me
+
+# Status codes to include (2=Open, 3=Pending). Resolved/Closed are dropped.
+include_statuses: [2, 3]
+
+# Ticket scopes folded into a single FQL query.
+include_scopes:
+  assigned_to_me: true
+  unassigned: true                # surface untriaged tickets early
+  watching: false                 # off per Phase 2.1 decision
+  high_priority_dept: false       # off per Phase 2.1 decision
+
+# Cap unassigned-ticket age so stale backlog doesn't drown the dashboard.
+# Garth's own assigned tickets are not age-capped — they stay until closed.
+unassigned_max_age_days: 122      # ~4 months
+
+# Hard-skip rules (analogous to Slack never_keep).
+never_keep:
+  - tag: spam
+  - status: 4                     # Resolved
+  - status: 5                     # Closed
+
+# Pagination
+per_page: 100
+max_pages: 5                      # 500 ticket safety cap

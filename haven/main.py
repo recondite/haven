@@ -12,17 +12,18 @@ import yaml
 log = logging.getLogger("haven")
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
-from haven import config, filters, linear, scoring, store, wiki
+from haven import config, contacts as contacts_mod, filters, linear, scoring, store, wiki
 from haven.db import cursor_store
 from haven.events import bus
 from haven.sources.gmail import GmailFetcher, GmailItem
 from haven.sources.gmail_auth import GmailAuth
 from haven.sources.slack import SlackFetcher
 from haven.sources.freshservice import FreshserviceFetcher
+from haven.sources.otter import OtterFetcher
 
 STATIC_DIR = Path(__file__).parent / "web" / "static"
 
@@ -81,7 +82,7 @@ async def _scheduled_poll_loop(name: str, poll_fn, poll_seconds: int) -> None:
         name, poll_seconds, QUIET_HOURS_START, QUIET_HOURS_END,
     )
     # Stagger initial polls so all three sources don't hammer simultaneously at startup.
-    initial_delay = {"gmail": 5, "slack": 20, "freshservice": 35}.get(name, 15)
+    initial_delay = {"gmail": 5, "slack": 20, "freshservice": 35, "otter": 50}.get(name, 15)
     await asyncio.sleep(initial_delay)
     while True:
         try:
@@ -114,6 +115,7 @@ async def lifespan(app: FastAPI):
         ("gmail", "gmail.yaml", 300, lambda: gmail_poll()),
         ("slack", "slack.yaml", 300, lambda: slack_poll()),
         ("freshservice", "freshservice.yaml", 3600, lambda: freshservice_poll()),
+        ("otter", "otter.yaml", 1800, lambda: otter_poll()),
     ]
     for name, yaml_name, default_secs, poll_fn in sources:
         secs, enabled = _read_poll_seconds(yaml_name, default_secs)
@@ -140,6 +142,21 @@ async def _heartbeat_loop() -> None:
         i += 1
         await bus.publish("heartbeat", {"n": i, "ts": time.time()})
         await asyncio.sleep(2)
+
+
+# ─── Favicon (silences the cold-load /favicon.ico 404 in logs) ───
+_FAVICON_SVG = (
+    b"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+    b"<rect width='32' height='32' rx='7' fill='#5e6ad2'/>"
+    b"<text x='16' y='22' text-anchor='middle' "
+    b"font-family='-apple-system,Segoe UI,Roboto,sans-serif' "
+    b"font-weight='700' font-size='18' fill='white'>H</text></svg>"
+)
+
+
+@app.get("/favicon.ico")
+async def favicon() -> Response:
+    return Response(content=_FAVICON_SVG, media_type="image/svg+xml")
 
 
 # ─── API ─────────────────────────────────────────────────
@@ -212,9 +229,11 @@ def _gmail_service():
     return build("gmail", "v1", credentials=creds, cache_discovery=False)
 
 
-@app.post("/api/agents/gmail/items/{msg_id}/archive")
-async def gmail_archive_one(msg_id: str) -> dict:
-    """Archive a single message: remove the INBOX label. Non-destructive."""
+async def _gmail_archive_id(msg_id: str) -> None:
+    """Remove the INBOX label from one Gmail message. Non-destructive — the
+    message stays in All Mail, recoverable. Raises HTTPException on failure.
+    Shared by `gmail_archive_one` and the Gmail branch of `item_mark_done`.
+    """
     service = _gmail_service()
 
     def _do() -> dict:
@@ -232,6 +251,12 @@ async def gmail_archive_one(msg_id: str) -> dict:
         raise HTTPException(500, f"Archive failed: {e}")
 
     await bus.publish("gmail_item_archived", {"msg_id": msg_id})
+
+
+@app.post("/api/agents/gmail/items/{msg_id}/archive")
+async def gmail_archive_one(msg_id: str) -> dict:
+    """Archive a single message: remove the INBOX label. Non-destructive."""
+    await _gmail_archive_id(msg_id)
     return {"archived": [msg_id]}
 
 
@@ -331,13 +356,96 @@ async def gmail_archive_noise() -> dict:
     return {"archived": noise_ids, "count": len(noise_ids)}
 
 
+# ─── Phase 1.7: source-generic done/snooze flags ─────────
+def _resolve_snooze_until(preset: str) -> float:
+    """Translate a UI preset to an epoch-seconds deadline."""
+    now = datetime.now()
+    if preset == "1h":
+        return (now + timedelta(hours=1)).timestamp()
+    if preset == "tomorrow":
+        target = (now + timedelta(days=1)).replace(
+            hour=QUIET_HOURS_END, minute=0, second=0, microsecond=0
+        )
+        return target.timestamp()
+    raise HTTPException(400, f"Unknown snooze preset: {preset}")
+
+
+def _load_cached_or_404(source: str, msg_id: str) -> dict:
+    if source not in {"gmail", "slack", "freshservice", "otter"}:
+        raise HTTPException(400, f"Unknown source: {source}")
+    cached = cursor_store.get_cached_payloads(source, [msg_id])
+    item = cached.get(msg_id)
+    if not item:
+        raise HTTPException(404, f"{source}/{msg_id} not in cache")
+    return item
+
+
+@app.post("/api/items/{source}/{msg_id:path}/mark-done")
+async def item_mark_done(source: str, msg_id: str) -> dict:
+    """Soft-mark an item as handled — drops it from hero + bucket. UI exposes
+    a 'Hide handled' toggle to surface it back, plus an unmark-done endpoint.
+
+    For Gmail items, also removes the INBOX label so Mark done = a single click
+    that both flags the item as handled in Haven and clears it from your inbox.
+    Hard-fails if the archive step errors (we don't claim "done" if Gmail isn't
+    actually clean).
+    """
+    item = _load_cached_or_404(source, msg_id)
+    archived_in_source = False
+    if source == "gmail":
+        await _gmail_archive_id(msg_id)
+        archived_in_source = True
+    item["handled_at"] = time.time()
+    cursor_store.put_cached(source, msg_id, item)
+    await bus.publish(f"{source}_handled", {"msg_id": msg_id, "handled_at": item["handled_at"]})
+    return {
+        "handled_at": item["handled_at"],
+        "msg_id": msg_id,
+        "archived_in_source": archived_in_source,
+    }
+
+
+@app.post("/api/items/{source}/{msg_id:path}/unmark-done")
+async def item_unmark_done(source: str, msg_id: str) -> dict:
+    item = _load_cached_or_404(source, msg_id)
+    item.pop("handled_at", None)
+    cursor_store.put_cached(source, msg_id, item)
+    await bus.publish(f"{source}_unhandled", {"msg_id": msg_id})
+    return {"unmarked": True, "msg_id": msg_id}
+
+
+@app.post("/api/items/{source}/{msg_id:path}/snooze")
+async def item_snooze(source: str, msg_id: str, payload: dict) -> dict:
+    """Hide an item from the items endpoints until `snooze_until` passes.
+    payload = {"preset": "1h" | "tomorrow"}."""
+    preset = (payload.get("preset") or "").strip()
+    item = _load_cached_or_404(source, msg_id)
+    until = _resolve_snooze_until(preset)
+    item["snooze_until"] = until
+    cursor_store.put_cached(source, msg_id, item)
+    await bus.publish(
+        f"{source}_snoozed",
+        {"msg_id": msg_id, "snooze_until": until, "preset": preset},
+    )
+    return {"snooze_until": until, "preset": preset, "msg_id": msg_id}
+
+
+@app.post("/api/items/{source}/{msg_id:path}/unsnooze")
+async def item_unsnooze(source: str, msg_id: str) -> dict:
+    item = _load_cached_or_404(source, msg_id)
+    item.pop("snooze_until", None)
+    cursor_store.put_cached(source, msg_id, item)
+    await bus.publish(f"{source}_unsnoozed", {"msg_id": msg_id})
+    return {"unsnoozed": True, "msg_id": msg_id}
+
+
 # ─── Linear AR capture (Phase 1.6, source-generic) ───────
 @app.post("/api/items/{source}/{msg_id:path}/linear")
 async def item_to_linear(source: str, msg_id: str) -> dict:
     """Source-generic AR capture — used by any agent (gmail, slack, freshservice).
     msg_id may contain ':' (e.g. slack channel:ts), hence path conversion.
     """
-    if source not in {"gmail", "slack", "freshservice"}:
+    if source not in {"gmail", "slack", "freshservice", "otter"}:
         raise HTTPException(400, f"Unknown source: {source}")
 
     cached = cursor_store.get_cached_payloads(source, [msg_id])
@@ -504,11 +612,16 @@ async def gmail_items() -> dict:
     """Return all cached Gmail items (most recent first), excluding pre-filtered ones.
 
     Used on page load to rehydrate the UI immediately without waiting for a poll.
+    Filtered out: rejected, snoozed (Phase 1.7).
+    Handled + Linear-captured items are returned and filtered client-side by the
+    Hide handled toggle.
     """
+    now = time.time()
     return {
         "items": [
             i for i in cursor_store.list_cached("gmail")
             if i.get("filter_status") != "reject"
+            and float(i.get("snooze_until") or 0) <= now
         ]
     }
 
@@ -753,6 +866,15 @@ async def gmail_poll(force: bool = False) -> dict:
         if (flags.get("is_elt") or flags.get("is_team")) and payload.get("urgency") == "low":
             payload["urgency"] = "med"
 
+        # Watchlist hit overrides LLM noise. Garth added the keyword specifically
+        # because he cares about this sender/topic; if the LLM thinks otherwise,
+        # promote the item so it's still visible.
+        if flags.get("watchlist_match"):
+            if payload.get("tag") == "noise":
+                payload["tag"] = "fyi"
+            if payload.get("urgency") == "low":
+                payload["urgency"] = "med"
+
         # LLM-tagged noise after the metadata filter passed — still apply the
         # Gmail "noise" label so it's filterable in Gmail itself.
         if payload.get("tag") == "noise":
@@ -826,9 +948,12 @@ async def slack_items() -> dict:
     are likely stale (user may have read them). Return only fresh ones; the
     user should Poll to refresh."""
     cutoff = time.time() - 30 * 60
+    now = time.time()
     fresh: list[dict] = []
     for i in cursor_store.list_cached("slack"):
         if i.get("filter_status") == "reject":
+            continue
+        if float(i.get("snooze_until") or 0) > now:
             continue
         try:
             if float(i.get("cached_at") or 0) < cutoff:
@@ -992,8 +1117,15 @@ async def freshservice_status() -> dict:
 
 @app.get("/api/agents/freshservice/items")
 async def freshservice_items() -> dict:
-    """Open tickets persist until next poll declares them closed — no freshness cutoff."""
-    items = [i for i in cursor_store.list_cached("freshservice") if i.get("filter_status") != "reject"]
+    """Open tickets persist until next poll declares them closed — no freshness cutoff.
+    Filtered out: snoozed, rejected. Handled + Linear-captured tickets are returned
+    and filtered client-side by the Hide handled toggle."""
+    now = time.time()
+    items = [
+        i for i in cursor_store.list_cached("freshservice")
+        if i.get("filter_status") != "reject"
+        and float(i.get("snooze_until") or 0) <= now
+    ]
     return {"items": items}
 
 
@@ -1034,7 +1166,10 @@ async def freshservice_poll(force: bool = False) -> dict:
         payload = t.summary()
         prev = cached_payloads.get(t.msg_id)
         if prev:
-            for k in ("linear_id", "linear_url", "linear_identifier", "linear_created_at"):
+            for k in (
+                "linear_id", "linear_url", "linear_identifier", "linear_created_at",
+                "handled_at", "snooze_until",
+            ):
                 if k in prev:
                     payload[k] = prev[k]
         else:
@@ -1056,6 +1191,128 @@ async def freshservice_poll(force: bool = False) -> dict:
         {k: v for k, v in summary.items() if k != "items"},
     )
     return summary
+
+
+# ─── Otter.ai (Phase 2.2) ────────────────────────────────
+@app.get("/api/auth/otter/status")
+async def otter_status() -> dict:
+    if not config.OTTER_API_KEY:
+        return {"authed": False, "reason": "OTTER_API_KEY missing in .env"}
+    try:
+        from haven.sources.otter import OtterClient
+        ws = await OtterClient().workspace()
+        return {
+            "authed": True,
+            "workspace_id": ws.get("id"),
+            "workspace_name": ws.get("name"),
+            "owner_email": ((ws.get("owner") or {}).get("email") or "").lower(),
+        }
+    except Exception as e:
+        return {"authed": False, "reason": str(e)}
+
+
+@app.get("/api/agents/otter/items")
+async def otter_items() -> dict:
+    """Return cached Otter ARs (most recent meeting first).
+    Filtered out: snoozed, rejected. Handled + Linear-captured ARs are returned and
+    filtered client-side by the Hide handled toggle."""
+    now = time.time()
+    items = [
+        i for i in cursor_store.list_cached("otter")
+        if i.get("filter_status") != "reject"
+        and float(i.get("snooze_until") or 0) <= now
+    ]
+    return {"items": items}
+
+
+@app.post("/api/agents/otter/clear-cache")
+async def otter_clear_cache() -> dict:
+    n = cursor_store.clear_cached("otter")
+    await bus.publish("otter_cache_cleared", {"count": n})
+    return {"cleared": n}
+
+
+@app.delete("/api/agents/otter/items/{msg_id:path}")
+async def otter_dismiss_item(msg_id: str) -> dict:
+    """Local-only dismiss — Otter has no AR-completed state in the API, so this
+    just removes the item from Haven's cache. Marking-done in Otter must happen
+    in Otter directly (or via Linear once captured)."""
+    removed = cursor_store.delete_cached("otter", msg_id)
+    return {"removed": removed, "msg_id": msg_id}
+
+
+@app.post("/api/agents/otter/poll")
+async def otter_poll(force: bool = False) -> dict:
+    """Pull recent Otter meetings → fetch each → emit ARs assigned to Garth.
+    force=True wipes cache + rejections first so every AR is re-emitted."""
+    if not config.OTTER_API_KEY:
+        raise HTTPException(400, "Otter not authorized — OTTER_API_KEY missing in .env")
+
+    fetcher = OtterFetcher()
+    try:
+        otter_items = await fetcher.fetch_all()
+    except Exception as e:
+        log.error("Otter fetch failed:\n%s", traceback.format_exc())
+        raise HTTPException(500, f"Otter fetch failed: {type(e).__name__}: {e}")
+
+    fetched_ids = {it.msg_id for it in otter_items}
+    if force:
+        cursor_store.clear_cached("otter")
+        cursor_store.clear_rejections("otter")
+        cached_payloads: dict[str, dict] = {}
+    else:
+        cached_payloads = {p["msg_id"]: p for p in cursor_store.list_cached("otter")}
+
+    items: list[dict] = []
+    new_count = 0
+    for it in otter_items:
+        payload = it.summary()
+        prev = cached_payloads.get(it.msg_id)
+        if prev:
+            for k in (
+                "linear_id", "linear_url", "linear_identifier", "linear_created_at",
+                "handled_at", "snooze_until",
+            ):
+                if k in prev:
+                    payload[k] = prev[k]
+        else:
+            new_count += 1
+            await bus.publish("otter_item", payload)
+        cursor_store.put_cached("otter", it.msg_id, payload)
+        cursor_store.mark_seen("otter", it.msg_id)
+        items.append(payload)
+
+    summary = {
+        "queried_total": len(otter_items),
+        "new_count": new_count,
+        "from_cache": len(otter_items) - new_count,
+        "items": items,
+    }
+    await bus.publish(
+        "otter_poll_complete",
+        {k: v for k, v in summary.items() if k != "items"},
+    )
+    return summary
+
+
+# ─── Contacts (Phase 1.9) ────────────────────────────────
+@app.get("/api/contacts")
+async def list_contacts() -> dict:
+    """Cross-source contact list, derived live from every cached item.
+
+    No DB writes, no LLM. Cheap because it's a single in-memory pass over the
+    same data the items endpoints serve. Computed on each request to stay
+    consistent with cache mutations (mark-done / snooze / Linear).
+    """
+    self_email = "garth@ayarlabs.com"
+    items: list[dict] = []
+    for src in ("gmail", "slack", "freshservice", "otter"):
+        for it in cursor_store.list_cached(src):
+            if it.get("filter_status") == "reject":
+                continue
+            items.append(it)
+    derived = contacts_mod.derive_contacts(items, self_email=self_email)
+    return {"contacts": [c.to_dict() for c in derived], "total": len(derived)}
 
 
 @app.get("/api/sse/stream")

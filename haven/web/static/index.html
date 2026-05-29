@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Haven</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235e6ad2'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='-apple-system,Segoe UI,Roboto,sans-serif' font-weight='700' font-size='18' fill='white'%3EH%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #0f1117;
@@ -526,6 +527,12 @@
     padding: 3px 10px;
   }
   .badge.score-err { background: rgba(248, 81, 73, 0.12); color: var(--err); opacity: 0.75; }
+  .badge.watchlist {
+    background: rgba(63, 185, 80, 0.18);
+    color: var(--ok);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
 
   /* Action-required item: hero treatment */
   .item.action-required {
@@ -661,6 +668,11 @@
   }
   .source-counts .src-pill .src-name { font-weight: 600; }
   .source-counts .src-pill .src-n { padding-left: 6px; opacity: 0.85; }
+  .source-counts .src-pill .src-h {
+    color: var(--ok);
+    padding-left: 1px;
+    font-variant-numeric: tabular-nums;
+  }
 
   /* === Source badge on each item === */
   .badge.src-gmail {
@@ -677,6 +689,11 @@
     background: rgba(80, 130, 180, 0.18);
     color: #6fb3ff;
     border: 1px solid rgba(80, 130, 180, 0.45);
+  }
+  .badge.src-otter {
+    background: rgba(0, 168, 145, 0.18);
+    color: #4dd6bf;
+    border: 1px solid rgba(0, 168, 145, 0.45);
   }
   .badge.src-channel {
     background: rgba(60, 60, 70, 0.4);
@@ -792,6 +809,165 @@
   #bulk-bar button.bulk-primary:hover { background: var(--accent-hover); }
   #bulk-bar button:disabled { opacity: 0.6; cursor: progress; }
 
+  /* === Hero (Phase 1.7) — top-of-canvas strip for the most-pressing items === */
+  #hero {
+    margin: 0 0 18px 0;
+    padding: 14px 16px 12px;
+    background: linear-gradient(180deg, rgba(94, 106, 210, 0.10), rgba(94, 106, 210, 0.03));
+    border: 1px solid rgba(94, 106, 210, 0.45);
+    border-radius: 10px;
+  }
+  #hero .hero-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  #hero .hero-date-select {
+    margin-left: auto;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #hero .hero-date-select:hover { border-color: var(--muted); }
+  #hero .hero-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  #hero .hero-sub {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #hero .hero-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #hero .hero-card:last-child { margin-bottom: 0; }
+  #hero .hero-card.urgent { border-color: rgba(248, 81, 73, 0.5); }
+  /* Aging cards keep the urgent red border but get a subtle warning-amber
+     tint so Garth can distinguish "LLM said urgent" from "this has been
+     sitting too long". */
+  #hero .hero-card.aging {
+    background: linear-gradient(180deg, rgba(210, 153, 34, 0.10), var(--panel));
+    border-color: rgba(210, 153, 34, 0.55);
+  }
+  #hero .hero-card.urgent.aging {
+    /* If both apply (rare — LLM urgent AND aged), the red urgent border wins. */
+    border-color: rgba(248, 81, 73, 0.6);
+  }
+  #hero .hero-card.snoozed { opacity: 0.55; }
+  #hero .hero-row1 {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  #hero .hero-card .subject {
+    flex: 1;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+    line-height: 1.3;
+  }
+  #hero .hero-card .subject:hover { color: var(--accent); }
+  #hero .hero-card .date {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  #hero .hero-row2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #hero .hero-card .badges {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  #hero .hero-suggested {
+    background: rgba(94, 106, 210, 0.10);
+    border-left: 3px solid var(--accent);
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #hero .hero-summary {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text);
+  }
+  #hero .hero-summary .action-tail {
+    color: var(--muted);
+    font-style: italic;
+  }
+  #hero .hero-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  #hero .hero-actions button,
+  #hero .hero-actions a {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  #hero .hero-actions button:hover,
+  #hero .hero-actions a:hover { background: var(--panel-2); border-color: var(--muted); }
+  #hero .hero-actions .linear-btn.linked {
+    background: rgba(94, 106, 210, 0.18);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  #hero .hero-more {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #hero .hero-more a {
+    color: var(--accent);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  #hero .hero-more a:hover { text-decoration: underline; }
+  .badge.handled {
+    background: rgba(63, 185, 80, 0.18);
+    color: var(--ok);
+    font-weight: 600;
+  }
+  .badge.snoozed {
+    background: rgba(210, 153, 34, 0.18);
+    color: var(--warn);
+    font-weight: 600;
+  }
+
   /* === Toast stack (bottom-right, used by Linear undo + create result) === */
   #toast-stack {
     position: fixed;
@@ -849,6 +1025,197 @@
     padding: 0 4px;
   }
 
+  /* === Contacts slide-over panel (Phase 1.9) === */
+  #contacts-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    pointer-events: none;
+  }
+  #contacts-panel .cp-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
+    opacity: 0;
+    transition: opacity 0.18s;
+  }
+  #contacts-panel:not([hidden]) .cp-backdrop { opacity: 1; }
+  #contacts-panel .cp-pane {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: clamp(360px, 38vw, 520px);
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    pointer-events: auto;
+    transform: translateX(100%);
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  #contacts-panel:not([hidden]) .cp-pane { transform: translateX(0); }
+  #contacts-panel .cp-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  #contacts-panel .cp-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+  #contacts-panel .cp-meta { color: var(--muted); font-size: 12px; flex: 1; }
+  #contacts-panel .cp-close {
+    background: transparent;
+    color: var(--muted);
+    border: 0;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 6px;
+  }
+  #contacts-panel .cp-close:hover { color: var(--text); background: transparent; }
+  #contacts-panel .cp-controls {
+    display: flex;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  #contacts-panel .cp-controls input,
+  #contacts-panel .cp-controls select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+  #contacts-panel .cp-controls input { flex: 1; }
+  #contacts-panel .cp-controls input:focus,
+  #contacts-panel .cp-controls select:focus { outline: 1px solid var(--accent); }
+  #contacts-panel .cp-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  #contacts-panel .cp-empty {
+    padding: 28px 16px;
+    color: var(--muted);
+    text-align: center;
+    font-size: 13px;
+  }
+  #contacts-panel .cp-row {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  #contacts-panel .cp-row:hover { background: var(--panel-2); }
+  #contacts-panel .cp-row.expanded { background: rgba(94, 106, 210, 0.08); }
+  #contacts-panel .cp-row .cp-row-top {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  #contacts-panel .cp-row .cp-name {
+    font-weight: 600;
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #contacts-panel .cp-row .cp-name.empty { color: var(--muted); font-style: italic; font-weight: 400; }
+  #contacts-panel .cp-row .cp-counts {
+    display: inline-flex;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  #contacts-panel .cp-row .cp-count {
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  #contacts-panel .cp-row .cp-count.open { color: var(--text); }
+  #contacts-panel .cp-row .cp-count.owes {
+    background: rgba(248, 81, 73, 0.18);
+    color: var(--err);
+    border-color: rgba(248, 81, 73, 0.45);
+  }
+  #contacts-panel .cp-row .cp-count.handled {
+    background: rgba(63, 185, 80, 0.14);
+    color: var(--ok);
+    border-color: rgba(63, 185, 80, 0.4);
+  }
+  #contacts-panel .cp-row .cp-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+  #contacts-panel .cp-row .cp-email {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+  }
+  #contacts-panel .cp-row .cp-source-badges {
+    display: inline-flex;
+    gap: 4px;
+  }
+  #contacts-panel .cp-drillin {
+    margin-top: 8px;
+    padding: 6px 0 2px;
+    border-top: 1px dashed var(--border);
+  }
+  #contacts-panel .cp-drillin .cp-item {
+    padding: 6px 0;
+    font-size: 12px;
+    line-height: 1.4;
+    border-top: 1px solid rgba(255,255,255,0.04);
+  }
+  #contacts-panel .cp-drillin .cp-item:first-child { border-top: 0; }
+  #contacts-panel .cp-drillin .cp-item-row1 {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  #contacts-panel .cp-drillin .cp-item-subject {
+    flex: 1;
+    color: var(--text);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #contacts-panel .cp-drillin .cp-item-subject:hover { color: var(--accent); }
+  #contacts-panel .cp-drillin .cp-item-date { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  #contacts-panel .cp-drillin .cp-item-actions {
+    margin-top: 4px;
+    display: flex;
+    gap: 6px;
+  }
+  #contacts-panel .cp-drillin .cp-item-actions button,
+  #contacts-panel .cp-drillin .cp-item-actions a {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  #contacts-panel .cp-drillin .cp-item-actions button:hover,
+  #contacts-panel .cp-drillin .cp-item-actions a:hover { background: var(--panel-2); border-color: var(--muted); }
+
   /* === Responsive tightening === */
   @media (max-width: 700px) {
     .header-counts { display: none; }
@@ -876,6 +1243,7 @@
           <a id="conn-gmail" class="conn-pill" href="/oauth/authorize" title="Gmail"><span class="conn-dot"></span><span>Gmail</span></a>
           <span id="conn-slack" class="conn-pill" title="Slack"><span class="conn-dot"></span><span>Slack</span></span>
           <span id="conn-freshservice" class="conn-pill" title="Freshservice"><span class="conn-dot"></span><span>FS</span></span>
+          <span id="conn-otter" class="conn-pill" title="Otter.ai"><span class="conn-dot"></span><span>Otter</span></span>
         </div>
         <div class="header-counts" id="header-counts"></div>
       </div>
@@ -887,6 +1255,7 @@
         </div>
         <div class="source-counts" id="source-counts" title="Per-source item counts"></div>
         <button id="poll-btn" class="btn-secondary" title="Fetch new items from Gmail and Slack. Shift+Click to force re-fetch (ignores dedup).">Poll now</button>
+        <button id="contacts-btn" class="btn-secondary" title="Open the Contacts panel — every person who has touched a cached item, deduped across sources.">Contacts</button>
         <button id="archive-noise-btn" class="btn-secondary" title="Archive every cached Gmail item tagged 'noise' (removes INBOX label — non-destructive, recoverable from All Mail).">Archive noise</button>
         <button id="clear-slack-btn" class="btn-secondary" title="Wipe every cached Slack item from Haven. Slack itself is not modified. Use when DMs/mentions clutter the view; next poll will re-fetch any still-unread.">Clear Slack</button>
       </div>
@@ -905,6 +1274,9 @@
         <label class="filter-row" title="Hides items the LLM tagged as noise. Items remain in your Gmail inbox; this only filters the Haven view.">
           <input type="checkbox" id="hide-noise" checked> Hide noise
         </label>
+        <label class="filter-row" title="Hides items you've marked done OR captured to Linear. They stay in cache so you can toggle them back on.">
+          <input type="checkbox" id="hide-handled" checked> Hide handled
+        </label>
       </section>
 
       <section class="sidebar-section" id="watchlist-panel" hidden>
@@ -921,6 +1293,7 @@
 
     <main class="content">
       <pre id="error-block" hidden></pre>
+      <section id="hero" hidden></section>
       <div id="items"></div>
       <div class="empty" id="items-empty">No items yet — click "Poll now" to fetch from Gmail.</div>
     </main>
@@ -932,6 +1305,29 @@
     <button id="bulk-cancel-btn" title="Clear selection (Esc)">Cancel</button>
   </div>
 
+  <div id="contacts-panel" hidden>
+    <div class="cp-backdrop"></div>
+    <aside class="cp-pane" role="dialog" aria-label="Contacts">
+      <header class="cp-head">
+        <h2>Contacts</h2>
+        <span class="cp-meta" id="cp-meta">—</span>
+        <button class="cp-close" id="cp-close" title="Close (Esc)">×</button>
+      </header>
+      <div class="cp-controls">
+        <input type="search" id="cp-search" placeholder="Search by name, email, company, or domain…" autocomplete="off">
+        <select id="cp-sort" title="Sort order">
+          <option value="last_seen">Recent activity</option>
+          <option value="open">Most open items</option>
+          <option value="owes">Most owed replies</option>
+          <option value="name">Name (A→Z)</option>
+        </select>
+      </div>
+      <div class="cp-body" id="cp-body">
+        <div class="cp-empty">Loading contacts…</div>
+      </div>
+    </aside>
+  </div>
+
   <div id="toast-stack"></div>
 
 <script>
@@ -941,10 +1337,19 @@
   const gmailPanel = document.getElementById("gmail-panel");
   const itemsEl = document.getElementById("items");
   const itemsEmpty = document.getElementById("items-empty");
+  const heroEl = document.getElementById("hero");
+  // Delegate change events for the hero date-window dropdown — the element is
+  // re-rendered each tick, so a direct listener on it would be lost.
+  heroEl.addEventListener("change", (e) => {
+    const tgt = e.target.closest("#hero-date-window");
+    if (!tgt) return;
+    setHeroDateWindow(tgt.value);
+  });
   const gmailMeta = document.getElementById("gmail-meta");
   const pollBtn = document.getElementById("poll-btn");
   const archiveNoiseBtn = document.getElementById("archive-noise-btn");
   const hideNoiseEl = document.getElementById("hide-noise");
+  const hideHandledEl = document.getElementById("hide-handled");
   const errorBlock = document.getElementById("error-block");
   const watchlistPanel = document.getElementById("watchlist-panel");
   const watchlistChips = document.getElementById("watchlist-chips");
@@ -1027,6 +1432,7 @@
 
   loadWatchlist();
   hideNoiseEl.addEventListener("change", () => renderItems());
+  if (hideHandledEl) hideHandledEl.addEventListener("change", () => renderItems());
 
   function removeFromRecent(msgId) {
     const idx = recent.findIndex(i => i.msg_id === msgId);
@@ -1210,6 +1616,30 @@
       if (msgId) startLinearCapture(msgId, linearBtn);
       return;
     }
+    const markDoneBtn = e.target.closest(".mark-done-btn");
+    if (markDoneBtn) {
+      e.preventDefault();
+      markItemDone(markDoneBtn.dataset.source, markDoneBtn.dataset.msgId, markDoneBtn);
+      return;
+    }
+    const unmarkDoneBtn = e.target.closest(".unmark-done-btn");
+    if (unmarkDoneBtn) {
+      e.preventDefault();
+      unmarkItemDone(unmarkDoneBtn.dataset.source, unmarkDoneBtn.dataset.msgId, unmarkDoneBtn);
+      return;
+    }
+    const snoozeBtn = e.target.closest(".snooze-btn");
+    if (snoozeBtn) {
+      e.preventDefault();
+      snoozeItem(snoozeBtn.dataset.source, snoozeBtn.dataset.msgId, snoozeBtn.dataset.preset, snoozeBtn);
+      return;
+    }
+    const unsnoozeBtn = e.target.closest(".unsnooze-btn");
+    if (unsnoozeBtn) {
+      e.preventDefault();
+      unsnoozeItem(unsnoozeBtn.dataset.source, unsnoozeBtn.dataset.msgId, unsnoozeBtn);
+      return;
+    }
     const head = e.target.closest(".bucket-head");
     if (head) {
       const key = head.dataset.toggle;
@@ -1253,6 +1683,162 @@
     if (!hc) return;
     scrollToBucket(hc.dataset.jump);
   });
+
+  // ─── Hero click delegation (Phase 1.7) ──────────────────
+  // Hero lives outside #items so it needs its own delegation. Mirrors the
+  // handlers in the main itemsEl listener above.
+  if (heroEl) {
+    heroEl.addEventListener("click", (e) => {
+      const subjectLink = e.target.closest("a.subject[data-msg-id]");
+      if (subjectLink) {
+        const msgId = subjectLink.dataset.msgId;
+        const src = subjectLink.dataset.source;
+        const reviewMode = e.shiftKey;
+        if (!reviewMode) {
+          if (src === "gmail" && msgId) {
+            archiveOne(msgId);
+          } else if (src === "slack" && msgId) {
+            removeFromRecent(msgId);
+            fetch(`/api/agents/slack/items/${encodeURIComponent(msgId)}`, { method: "DELETE" }).catch(() => {});
+          }
+        }
+        return; // browser handles the link
+      }
+      const linearBtn = e.target.closest("button.linear-btn");
+      if (linearBtn) {
+        e.preventDefault();
+        const msgId = linearBtn.dataset.msgId;
+        if (msgId) startLinearCapture(msgId, linearBtn);
+        return;
+      }
+      const wikiBtn = e.target.closest(".wiki-btn");
+      if (wikiBtn) {
+        e.preventDefault();
+        const msgId = wikiBtn.dataset.msgId;
+        if (msgId) addToWiki(msgId, wikiBtn);
+        return;
+      }
+      const markDoneBtn = e.target.closest(".mark-done-btn");
+      if (markDoneBtn) {
+        e.preventDefault();
+        markItemDone(markDoneBtn.dataset.source, markDoneBtn.dataset.msgId, markDoneBtn);
+        return;
+      }
+      const snoozeBtn = e.target.closest(".snooze-btn");
+      if (snoozeBtn) {
+        e.preventDefault();
+        snoozeItem(snoozeBtn.dataset.source, snoozeBtn.dataset.msgId, snoozeBtn.dataset.preset, snoozeBtn);
+        return;
+      }
+    });
+  }
+
+  // ─── Mark done / Snooze handlers (Phase 1.7) ────────────
+  async function markItemDone(source, msgId, btn) {
+    if (!source || !msgId) return;
+    if (btn) { btn.disabled = true; btn.textContent = "marking…"; }
+    try {
+      const r = await fetch(`/api/items/${source}/${encodeURIComponent(msgId)}/mark-done`, { method: "POST" });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Mark done failed:", err);
+        showError(`POST mark-done → ${r.status}\n\n${err}`);
+        if (btn) { btn.disabled = false; btn.textContent = "Mark done"; }
+        return;
+      }
+      const j = await r.json();
+      const item = recent.find(i => i.msg_id === msgId);
+      if (item) {
+        item.handled_at = j.handled_at;
+        renderItems();
+      }
+      const headline = j.archived_in_source ? "Marked done · archived in Gmail" : "Marked done";
+      makeToast("success",
+        `${headline} <div class="sub">${escapeHtml((item && item.subject || "").slice(0, 80))}</div>`,
+        { actionLabel: "Undo", onAction: (el) => { el.remove(); unmarkItemDone(source, msgId); }, autoDismissMs: 5000 }
+      );
+    } catch (e) {
+      console.error("Mark done error:", e);
+      if (btn) { btn.disabled = false; btn.textContent = "Mark done"; }
+    }
+  }
+
+  async function unmarkItemDone(source, msgId, btn) {
+    if (!source || !msgId) return;
+    if (btn) { btn.disabled = true; btn.textContent = "…"; }
+    try {
+      const r = await fetch(`/api/items/${source}/${encodeURIComponent(msgId)}/unmark-done`, { method: "POST" });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Unmark done failed:", err);
+        if (btn) { btn.disabled = false; btn.textContent = "Unmark done"; }
+        return;
+      }
+      const item = recent.find(i => i.msg_id === msgId);
+      if (item) {
+        delete item.handled_at;
+        renderItems();
+      }
+    } catch (e) {
+      console.error("Unmark done error:", e);
+      if (btn) { btn.disabled = false; btn.textContent = "Unmark done"; }
+    }
+  }
+
+  async function snoozeItem(source, msgId, preset, btn) {
+    if (!source || !msgId || !preset) return;
+    const original = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "snoozing…"; }
+    try {
+      const r = await fetch(`/api/items/${source}/${encodeURIComponent(msgId)}/snooze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preset }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Snooze failed:", err);
+        showError(`POST snooze → ${r.status}\n\n${err}`);
+        if (btn) { btn.disabled = false; btn.textContent = original; }
+        return;
+      }
+      const j = await r.json();
+      const item = recent.find(i => i.msg_id === msgId);
+      if (item) {
+        item.snooze_until = j.snooze_until;
+        renderItems();
+      }
+      const label = preset === "1h" ? "1 hour" : (preset === "tomorrow" ? "tomorrow 7am" : preset);
+      makeToast("success",
+        `Snoozed for ${label} <div class="sub">${escapeHtml((item && item.subject || "").slice(0, 80))}</div>`,
+        { actionLabel: "Undo", onAction: (el) => { el.remove(); unsnoozeItem(source, msgId); }, autoDismissMs: 5000 }
+      );
+    } catch (e) {
+      console.error("Snooze error:", e);
+      if (btn) { btn.disabled = false; btn.textContent = original; }
+    }
+  }
+
+  async function unsnoozeItem(source, msgId, btn) {
+    if (!source || !msgId) return;
+    if (btn) { btn.disabled = true; btn.textContent = "…"; }
+    try {
+      const r = await fetch(`/api/items/${source}/${encodeURIComponent(msgId)}/unsnooze`, { method: "POST" });
+      if (!r.ok) {
+        console.error("Unsnooze failed:", await r.text());
+        if (btn) { btn.disabled = false; btn.textContent = "Unsnooze"; }
+        return;
+      }
+      const item = recent.find(i => i.msg_id === msgId);
+      if (item) {
+        delete item.snooze_until;
+        renderItems();
+      }
+    } catch (e) {
+      console.error("Unsnooze error:", e);
+      if (btn) { btn.disabled = false; btn.textContent = "Unsnooze"; }
+    }
+  }
 
   async function blockSender(msgId, btn, domainToo) {
     btn.disabled = true;
@@ -1553,7 +2139,7 @@
     return item.source || "gmail";
   }
   function sourceLabel(src) {
-    return { gmail: "Gmail", slack: "Slack", freshservice: "Freshservice" }[src] || src;
+    return { gmail: "Gmail", slack: "Slack", freshservice: "Freshservice", otter: "Otter" }[src] || src;
   }
 
   function fmtDate(iso) {
@@ -1666,11 +2252,20 @@
     const replyNeededBadge = item.reply_needed
       ? `<span class="badge reply-needed" title="${escapeHtml(item.reply_reason || 'Reply needed per LLM analysis')}">reply needed</span>`
       : "";
+    const handledBadge = item.handled_at
+      ? `<span class="badge handled" title="Marked done by Garth — click 'Unmark done' to surface back">✓ done</span>`
+      : "";
+    const snoozedBadge = (parseFloat(item.snooze_until || 0) > Date.now() / 1000)
+      ? `<span class="badge snoozed" title="Snoozed until ${escapeHtml(new Date(parseFloat(item.snooze_until) * 1000).toLocaleString())}">💤 snoozed</span>`
+      : "";
     const owesReplyBadge = (!item.reply_needed && item.last_inbound_at && !item.garth_owns_last_turn)
       ? `<span class="badge owe" title="Last message in this thread is from someone else — heuristic">owes reply</span>`
       : "";
     const scoreErrBadge = item.score_error
       ? `<span class="badge score-err" title="${escapeHtml(item.score_error)}">⚠ score</span>`
+      : "";
+    const watchlistBadge = item.watchlist_match
+      ? `<span class="badge watchlist" title="Matched your watchlist keyword: ${escapeHtml(item.watchlist_match)}">📌 ${escapeHtml(item.watchlist_match)}</span>`
       : "";
     const datesBadge = (item.dates_mentioned && item.dates_mentioned.length)
       ? `<span class="badge dates" title="${escapeHtml(item.dates_mentioned.join(', '))}">📅 ${item.dates_mentioned.length}</span>`
@@ -1722,7 +2317,7 @@
         <div class="row2">
           <span class="from">${fmtFrom(item)}</span>
           <span class="badges">
-            ${srcBadge}${channelBadge}${actionRequiredBadge}${eltBadge}${teamBadge}${internalBadge}${urgencyBadge}${tagBadge}${replyNeededBadge}${owesReplyBadge}${filteredBadge}${scoreErrBadge}${roleBadge}${datesBadge}${threadBadge}${attachBadge}${labelBadges}
+            ${srcBadge}${channelBadge}${actionRequiredBadge}${watchlistBadge}${eltBadge}${teamBadge}${internalBadge}${urgencyBadge}${tagBadge}${replyNeededBadge}${owesReplyBadge}${handledBadge}${snoozedBadge}${filteredBadge}${scoreErrBadge}${roleBadge}${datesBadge}${threadBadge}${attachBadge}${labelBadges}
           </span>
         </div>
         ${summaryLine}
@@ -1736,6 +2331,8 @@
             ? `<a class="linear-btn linked" href="${escapeHtml(item.linear_url || '#')}" target="_blank" rel="noopener" title="Open in Linear">→ ${escapeHtml(item.linear_identifier || 'Linear')}</a>`
             : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR in the CIO ARs project. 10-second undo before it's sent.">→ Linear</button>`
           }
+          ${item.handled_at ? `<button class="unmark-done-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Bring this item back to the active view">Unmark done</button>` : ""}
+          ${(parseFloat(item.snooze_until || 0) > Date.now() / 1000) ? `<button class="unsnooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Cancel snooze — surface back immediately">Unsnooze</button>` : ""}
           ${gmailOnly ? `<button class="block-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-sender="${escapeHtml(item.sender_email || '')}" title="Add this sender to the dynamic block list — they'll never appear in Haven again. Shift+click to also block the entire domain.">Block</button>` : ""}
         </div>
       </div>
@@ -1762,7 +2359,7 @@
     `;
   }
 
-  // Source filter: "all" | "gmail" | "slack" | "freshservice"
+  // Source filter: "all" | "gmail" | "slack" | "freshservice" | "otter"
   let activeSource = "all";
   // Urgency filter — toggled from At-A-Glance "Urgent" row
   let urgentOnly = false;
@@ -1781,21 +2378,274 @@
   function renderSourceCounts() {
     const el = document.getElementById("source-counts");
     if (!el) return;
-    const tally = { all: recent.length, gmail: 0, slack: 0, freshservice: 0 };
-    for (const i of recent) tally[sourceOf(i)] = (tally[sourceOf(i)] || 0) + 1;
-    const order = ["all", "gmail", "slack", "freshservice"];
+    // Split into active (open) and handled (Mark-done OR captured to Linear).
+    const active = { all: 0, gmail: 0, slack: 0, freshservice: 0, otter: 0 };
+    const handled = { all: 0, gmail: 0, slack: 0, freshservice: 0, otter: 0 };
+    for (const i of recent) {
+      const src = sourceOf(i);
+      const bucket = isHandled(i) ? handled : active;
+      bucket.all++;
+      if (bucket[src] !== undefined) bucket[src]++;
+    }
+    const order = ["all", "gmail", "slack", "freshservice", "otter"];
     el.innerHTML = order.map(k => {
+      const a = active[k] || 0;
+      const h = handled[k] || 0;
       const cls = "src-pill" + (activeSource === k ? " active" : "");
       const label = k === "all" ? "All" : sourceLabel(k);
-      return `<span class="${cls}" data-src="${k}" title="${label}: ${tally[k]||0}"><span class="src-name">${label}</span><span class="src-n">${tally[k]||0}</span></span>`;
+      return `<span class="${cls}" data-src="${k}" title="${label}: ${a} active · ${h} handled (marked done or captured to Linear)"><span class="src-name">${label}</span><span class="src-n">${a}</span><span class="src-h">/${h}</span></span>`;
     }).join("");
+  }
+
+  // ─── Hero (Phase 1.7) — top-of-canvas strip ─────────────
+  const HERO_LIMIT = 10;
+
+  // Aging thresholds (days) — older items in these states get bumped to URGENT
+  // even if the LLM didn't tag them that way. The intent is that nothing
+  // important sits in "Needs your attention" forever without escalating.
+  const AGING_DAYS = {
+    approval: 2,      // approvals block other people — escalate fast
+    action: 3,        // direct ARs — escalate after 3 days
+    reply: 5,         // reply-needed — escalate after 5 days
+    elt_team: 2,      // ELT/team items that are unhandled — escalate after 2 days
+  };
+
+  function ageDays(item) {
+    const ts = Date.parse(item.date) || 0;
+    if (!ts) return 0;
+    return (Date.now() - ts) / 86400000;
+  }
+
+  function agingReason(item) {
+    // Return a short human reason if this item is being escalated by age.
+    // Order matters: pick the strictest threshold that applies.
+    const days = ageDays(item);
+    if (days < 1) return "";
+    const d = Math.floor(days);
+    if (item.tag === "approval" && days >= AGING_DAYS.approval) {
+      return `aging: approval pending ${d}d`;
+    }
+    if (item.action_required && days >= AGING_DAYS.action) {
+      return `aging: action required ${d}d`;
+    }
+    if (item.reply_needed && days >= AGING_DAYS.reply) {
+      return `aging: reply needed ${d}d`;
+    }
+    if ((item.is_elt || item.is_team) && days >= AGING_DAYS.elt_team
+        && (item.action_required || item.reply_needed || item.tag === "approval")) {
+      return `aging: ELT/team item ${d}d old`;
+    }
+    return "";
+  }
+
+  function clientUrgency(item) {
+    // The LLM's word is final if it said "urgent". Otherwise we apply
+    // aging-based escalation so old hero-eligible items don't get buried.
+    const llm = (item.urgency || "").toLowerCase();
+    if (llm === "urgent") return "urgent";
+    if (agingReason(item)) return "urgent";
+    return llm;
+  }
+
+  // Date-window filter for the hero strip. Persisted to localStorage so the
+  // last choice survives a reload.
+  const HERO_DATE_WINDOWS = {
+    all: { label: "All time", days: null },
+    "1": { label: "Today", days: 1 },
+    "3": { label: "Last 3 days", days: 3 },
+    "7": { label: "Last 7 days", days: 7 },
+    "30": { label: "Last 30 days", days: 30 },
+  };
+  let heroDateWindow = (() => {
+    try { return localStorage.getItem("heroDateWindow") || "all"; }
+    catch (e) { return "all"; }
+  })();
+  function setHeroDateWindow(v) {
+    heroDateWindow = HERO_DATE_WINDOWS[v] ? v : "all";
+    try { localStorage.setItem("heroDateWindow", heroDateWindow); } catch (e) {}
+    renderItems();
+  }
+  function withinHeroWindow(item) {
+    const w = HERO_DATE_WINDOWS[heroDateWindow] || HERO_DATE_WINDOWS.all;
+    if (w.days == null) return true;
+    return ageDays(item) <= w.days;
+  }
+
+  function isSnoozed(item) {
+    const until = parseFloat(item.snooze_until || 0);
+    return until > Date.now() / 1000;
+  }
+
+  function isHandled(item) {
+    // "Handled" covers two paths: explicit Mark-done (handled_at) and Linear capture
+    // (linear_id). Both share the same Hide-handled filter — once an AR is in Linear,
+    // Linear is the system of record, so it's effectively handled in Haven.
+    return Boolean(item.handled_at) || Boolean(item.linear_id);
+  }
+
+  function isHeroEligible(item) {
+    if (isSnoozed(item)) return false;          // also filtered server-side, but keep client-side honest
+    if (isHandled(item)) return false;
+    const isApproval = item.tag === "approval";
+    const isAR = Boolean(item.action_required);
+    const isSlackDM = sourceOf(item) === "slack" && (item.channel_type === "im" || item.channel_type === "mpim");
+    const isReplyChannel = Boolean(item.reply_needed) && !isSlackDM;
+    return isApproval || isAR || isReplyChannel;
+  }
+
+  function heroTier(item) {
+    if (item.tag === "approval") return 0;       // approvals first within urgency tier
+    if (item.action_required) return 1;
+    return 2;                                     // reply-needed channel
+  }
+
+  function heroSort(a, b) {
+    // Sort by effective urgency first — aging-escalated items rank alongside
+    // LLM-urgent ones so timed-out approvals/ARs bubble up automatically.
+    const ua = clientUrgency(a) === "urgent" ? 0 : 1;
+    const ub = clientUrgency(b) === "urgent" ? 0 : 1;
+    if (ua !== ub) return ua - ub;
+    const ta = heroTier(a), tb = heroTier(b);
+    if (ta !== tb) return ta - tb;
+    return (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0);
+  }
+
+  function renderHeroCard(item) {
+    const src = sourceOf(item);
+    const role = (item.garth_recipient_role || "").toUpperCase();
+    const roleBadge = role && role !== "BCC" ? `<span class="badge role">${role} ME</span>` : "";
+    const llmUrgency = (item.urgency || "").toLowerCase();
+    const effUrgency = clientUrgency(item);
+    const aging = agingReason(item);
+    // The badge shows the effective urgency (URGENT if aging-bumped). Tooltip
+    // explains the bump so Garth can see why.
+    const urgencyTip = aging
+      ? `LLM tag: ${llmUrgency || 'none'} · escalated — ${aging}`
+      : (llmUrgency ? `LLM tag: ${llmUrgency}` : "");
+    const urgencyBadge = effUrgency
+      ? `<span class="badge urg-${effUrgency}" title="${escapeHtml(urgencyTip)}">${effUrgency.toUpperCase()}${aging ? " ⏰" : ""}</span>`
+      : "";
+    const tag = (item.tag || "").toLowerCase();
+    const tagBadge = tag ? `<span class="badge tag-${tag}" title="LLM tag: ${tag}">${tag}</span>` : "";
+    const arBadge = item.action_required
+      ? `<span class="badge action-req" title="LLM flagged: Garth must personally act on this">ACTION</span>` : "";
+    const replyBadge = item.reply_needed
+      ? `<span class="badge reply-needed" title="${escapeHtml(item.reply_reason || 'Reply needed per LLM analysis')}">reply needed</span>` : "";
+    const eltBadge = item.is_elt ? `<span class="badge elt">ELT</span>` : "";
+    const teamBadge = (item.is_team && !item.is_elt) ? `<span class="badge team">TEAM</span>` : "";
+    const srcBadge = `<span class="badge src-${src}">${escapeHtml(sourceLabel(src))}</span>`;
+    const channelBadge = (src === "slack" && item.channel_type === "channel" && item.channel_name)
+      ? `<span class="badge src-channel">#${escapeHtml(item.channel_name)}</span>` : "";
+
+    // Body: prefer fully-expanded suggested_reply for reply-needed items.
+    let body = "";
+    if (item.reply_needed && item.suggested_reply) {
+      body = `<div class="hero-suggested">${escapeHtml(item.suggested_reply)}</div>`;
+    } else if (item.summary) {
+      const action = item.suggested_action ? ` <span class="action-tail">— ${escapeHtml(item.suggested_action)}</span>` : "";
+      body = `<div class="hero-summary">${escapeHtml(item.summary)}${action}</div>`;
+    } else if (item.suggested_action) {
+      body = `<div class="hero-summary"><span class="action-tail">${escapeHtml(item.suggested_action)}</span></div>`;
+    }
+
+    const linearAction = item.linear_id
+      ? `<a class="linear-btn linked" href="${escapeHtml(item.linear_url || '#')}" target="_blank" rel="noopener" title="Open in Linear">→ ${escapeHtml(item.linear_identifier || 'Linear')}</a>`
+      : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR. 10-second undo before it's sent.">→ Linear</button>`;
+
+    // Wiki ingest is gmail-only — re-fetches the body and runs an LLM pass that
+    // updates people/company/event/topic pages.
+    const wikiAction = (src === "gmail")
+      ? `<button class="wiki-btn ${item.wiki_ingested ? 'in-wiki' : ''}" data-msg-id="${escapeHtml(item.msg_id)}" title="Send this email to the curated wiki — the LLM creates/updates the relevant people, company, event, and topic pages.">${item.wiki_ingested ? '✓ in wiki' : '+ Wiki'}</button>`
+      : "";
+
+    const cls = ["hero-card", effUrgency === "urgent" ? "urgent" : "", aging ? "aging" : ""].filter(Boolean).join(" ");
+    return `
+      <div class="${cls}" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}">
+        <div class="hero-row1">
+          <a class="subject" href="${escapeHtml(item.deeplink)}" target="_blank" rel="noopener" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="${escapeHtml(item.subject)}\n\nClick: open in source\nShift+click: open without auto-archive">${escapeHtml(item.subject || "(no subject)")}</a>
+          <span class="date" title="${escapeHtml(fmtDate(item.date))}">${escapeHtml(fmtRelative(item.date))}</span>
+        </div>
+        <div class="hero-row2">
+          <span class="from">${fmtFrom(item)}</span>
+          <span class="badges">${srcBadge}${channelBadge}${arBadge}${urgencyBadge}${tagBadge}${replyBadge}${eltBadge}${teamBadge}${roleBadge}</span>
+        </div>
+        ${body}
+        <div class="hero-actions">
+          <button class="mark-done-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Mark this item handled. Hidden from view; toggle 'Hide handled' off to surface it back.">Mark done</button>
+          <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="1h" title="Hide for 1 hour">Snooze 1h</button>
+          <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="tomorrow" title="Hide until 7am tomorrow">Snooze ↻</button>
+          ${wikiAction}
+          ${linearAction}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderHero(heroItems, totalEligible, totalAllTime) {
+    if (!heroEl) return;
+    const windowOpts = Object.entries(HERO_DATE_WINDOWS).map(([v, cfg]) => {
+      const sel = v === heroDateWindow ? " selected" : "";
+      return `<option value="${v}"${sel}>${escapeHtml(cfg.label)}</option>`;
+    }).join("");
+    const dateFilterEl = `<select id="hero-date-window" class="hero-date-select" title="Limit 'Needs your attention' to items younger than this">${windowOpts}</select>`;
+
+    const hiddenByDate = (typeof totalAllTime === "number" && totalAllTime > totalEligible)
+      ? totalAllTime - totalEligible
+      : 0;
+    const dateHint = hiddenByDate > 0
+      ? ` · ${hiddenByDate} hidden by date filter`
+      : "";
+
+    if (heroItems.length === 0) {
+      // Even when empty, keep the header visible so Garth can change the date
+      // filter to surface older items if he just cleared today's queue.
+      heroEl.hidden = false;
+      heroEl.innerHTML = `
+        <div class="hero-head">
+          <span class="hero-title">Needs your attention</span>
+          <span class="hero-sub">nothing pressing in window${dateHint}</span>
+          ${dateFilterEl}
+        </div>
+      `;
+      return;
+    }
+    const more = totalEligible > heroItems.length
+      ? `<div class="hero-more">+${totalEligible - heroItems.length} more in the buckets below</div>`
+      : "";
+    heroEl.hidden = false;
+    heroEl.innerHTML = `
+      <div class="hero-head">
+        <span class="hero-title">Needs your attention</span>
+        <span class="hero-sub">${heroItems.length} of ${totalEligible} most-pressing · approvals · ARs · reply-needed${dateHint}</span>
+        ${dateFilterEl}
+      </div>
+      ${heroItems.map(renderHeroCard).join("")}
+      ${more}
+    `;
   }
 
   function renderItems() {
     // Bucket every item.
     const buckets = { ar: [], approval: [], reply: [], important: [], fyi: [], noise: [] };
-    const items = visibleItems();
-    for (const item of items) buckets[bucketOf(item)].push(item);
+    const allVisible = visibleItems();
+    // Hide handled items (toggle: #hide-handled, default checked).
+    const items = (hideHandledEl && hideHandledEl.checked)
+      ? allVisible.filter(i => !isHandled(i))
+      : allVisible;
+
+    // Pick hero items + dedup from buckets. Apply the date-window filter
+    // first so older items don't crowd out today's signal, but always count
+    // the unfiltered total so we can show "+N hidden by date filter".
+    const heroEligibleAll = items.filter(isHeroEligible);
+    const heroEligible = heroEligibleAll.filter(withinHeroWindow).sort(heroSort);
+    const heroItems = heroEligible.slice(0, HERO_LIMIT);
+    const heroIds = new Set(heroItems.map(i => i.msg_id));
+    renderHero(heroItems, heroEligible.length, heroEligibleAll.length);
+
+    for (const item of items) {
+      if (heroIds.has(item.msg_id)) continue;     // dedup: hero items not duplicated in buckets
+      buckets[bucketOf(item)].push(item);
+    }
     renderSourceCounts();
 
     // Sort each bucket strictly by date desc — newest at top.
@@ -1813,7 +2663,7 @@
 
     const hideNoise = hideNoiseEl.checked;
     const visibleCount = buckets.ar.length + buckets.approval.length + buckets.reply.length + buckets.important.length + buckets.fyi.length + (hideNoise ? 0 : buckets.noise.length);
-    if (visibleCount === 0) {
+    if (visibleCount === 0 && heroItems.length === 0) {
       itemsEmpty.hidden = false;
       itemsEmpty.textContent = (hideNoise && buckets.noise.length)
         ? `All ${buckets.noise.length} items hidden as noise — uncheck "Hide noise" to see them.`
@@ -1891,24 +2741,39 @@
     } catch (e) { /* ignore */ }
   }
 
+  async function refreshOtterStatus() {
+    try {
+      const r = await fetch("/api/auth/otter/status");
+      const j = await r.json();
+      if (j.authed) {
+        setPill("conn-otter", "ok", `Otter connected · ${j.workspace_name || ''} · ARs assigned to ${j.owner_email || 'you'}`);
+      } else {
+        setPill("conn-otter", "err", `Otter not connected: ${j.reason || "OTTER_API_KEY missing"}`);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
   async function loadCachedItems() {
     try {
-      const [gr, sr, fr] = await Promise.all([
+      const [gr, sr, fr, or] = await Promise.all([
         fetch("/api/agents/gmail/items").catch(() => null),
         fetch("/api/agents/slack/items").catch(() => null),
         fetch("/api/agents/freshservice/items").catch(() => null),
+        fetch("/api/agents/otter/items").catch(() => null),
       ]);
       const gj = gr && gr.ok ? await gr.json() : { items: [] };
       const sj = sr && sr.ok ? await sr.json() : { items: [] };
       const fj = fr && fr.ok ? await fr.json() : { items: [] };
+      const oj = or && or.ok ? await or.json() : { items: [] };
       recent.length = 0;
-      recent.push(...(gj.items || []), ...(sj.items || []), ...(fj.items || []));
+      recent.push(...(gj.items || []), ...(sj.items || []), ...(fj.items || []), ...(oj.items || []));
       renderItems();
       if (recent.length) {
         const g = (gj.items || []).length;
         const s = (sj.items || []).length;
         const f = (fj.items || []).length;
-        gmailMeta.textContent = `${recent.length} cached · Gmail ${g} · Slack ${s} · Freshservice ${f} · click "Poll now" to refresh`;
+        const o = (oj.items || []).length;
+        gmailMeta.textContent = `${recent.length} cached · Gmail ${g} · Slack ${s} · FS ${f} · Otter ${o} · click "Poll now" to refresh`;
       }
     } catch (e) { /* ignore */ }
   }
@@ -1919,15 +2784,17 @@
     gmail: { done: true, label: "" },
     slack: { done: true, label: "" },
     freshservice: { done: true, label: "" },
+    otter: { done: true, label: "" },
   };
 
   function updatePollMeta() {
     const parts = [];
     if (pollStatus.gmail.label) parts.push(`Gmail: ${pollStatus.gmail.label}`);
     if (pollStatus.slack.label) parts.push(`Slack: ${pollStatus.slack.label}`);
-    if (pollStatus.freshservice.label) parts.push(`Freshservice: ${pollStatus.freshservice.label}`);
+    if (pollStatus.freshservice.label) parts.push(`FS: ${pollStatus.freshservice.label}`);
+    if (pollStatus.otter.label) parts.push(`Otter: ${pollStatus.otter.label}`);
     if (parts.length) gmailMeta.textContent = parts.join(" · ");
-    const allDone = pollStatus.gmail.done && pollStatus.slack.done && pollStatus.freshservice.done;
+    const allDone = pollStatus.gmail.done && pollStatus.slack.done && pollStatus.freshservice.done && pollStatus.otter.done;
     pollBtn.disabled = !allDone;
     pollBtn.textContent = allDone ? "Poll now" : "Polling…";
   }
@@ -1975,6 +2842,10 @@
         if (j.new_count) segs.push(`+${j.new_count} new`);
         if (j.scored_by_llm) segs.push(`${j.scored_by_llm} LLM`);
         pollStatus.slack = { done: true, label: segs.join(" · ") };
+      } else if (source === "otter") {
+        const segs = [`${j.queried_total ?? 0} ARs`];
+        if (j.new_count) segs.push(`+${j.new_count} new`);
+        pollStatus.otter = { done: true, label: segs.join(" · ") };
       } else if (source === "freshservice") {
         const segs = [`${j.queried_total ?? 0} open tickets`];
         if (j.new_count) segs.push(`+${j.new_count} new`);
@@ -1995,15 +2866,211 @@
     pollSource("gmail", force);
     pollSource("slack", force);
     pollSource("freshservice", force);
+    pollSource("otter", force);
   }
 
   pollBtn.addEventListener("click", (e) => pollNow(e.shiftKey));
+
+  // ─── Contacts panel (Phase 1.9) ─────────────────────────
+  const contactsBtn = document.getElementById("contacts-btn");
+  const contactsPanel = document.getElementById("contacts-panel");
+  const cpBackdrop = contactsPanel.querySelector(".cp-backdrop");
+  const cpCloseBtn = document.getElementById("cp-close");
+  const cpSearch = document.getElementById("cp-search");
+  const cpSort = document.getElementById("cp-sort");
+  const cpBody = document.getElementById("cp-body");
+  const cpMeta = document.getElementById("cp-meta");
+  let contactsCache = [];                           // last-fetched contact list
+  const cpExpanded = new Set();                     // emails expanded in drill-in
+
+  async function openContactsPanel() {
+    contactsPanel.hidden = false;
+    cpBody.innerHTML = `<div class="cp-empty">Loading contacts…</div>`;
+    cpMeta.textContent = "loading…";
+    try {
+      const r = await fetch("/api/contacts");
+      if (!r.ok) {
+        cpBody.innerHTML = `<div class="cp-empty">Failed to load (HTTP ${r.status})</div>`;
+        cpMeta.textContent = "error";
+        return;
+      }
+      const j = await r.json();
+      contactsCache = j.contacts || [];
+      cpMeta.textContent = `${contactsCache.length} contacts`;
+      renderContacts();
+      requestAnimationFrame(() => cpSearch.focus());
+    } catch (e) {
+      cpBody.innerHTML = `<div class="cp-empty">Error: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+  function closeContactsPanel() {
+    contactsPanel.hidden = true;
+    cpExpanded.clear();
+  }
+  contactsBtn.addEventListener("click", openContactsPanel);
+  cpCloseBtn.addEventListener("click", closeContactsPanel);
+  cpBackdrop.addEventListener("click", closeContactsPanel);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !contactsPanel.hidden) closeContactsPanel();
+  });
+  cpSearch.addEventListener("input", () => renderContacts());
+  cpSort.addEventListener("change", () => renderContacts());
+
+  function contactMatchesSearch(c, q) {
+    if (!q) return true;
+    const hay = `${c.name} ${c.email} ${c.company} ${c.domain}`.toLowerCase();
+    return hay.includes(q);
+  }
+
+  function sortContacts(list, key) {
+    const cmp = {
+      last_seen: (a, b) => (b.last_seen || "").localeCompare(a.last_seen || ""),
+      open: (a, b) => (b.open_count - a.open_count) || (b.last_seen || "").localeCompare(a.last_seen || ""),
+      owes: (a, b) => (b.owes_reply_count - a.owes_reply_count) || (b.open_count - a.open_count),
+      name: (a, b) => (a.name || a.email).localeCompare(b.name || b.email),
+    }[key] || ((a, b) => 0);
+    return [...list].sort(cmp);
+  }
+
+  function renderContactRow(c) {
+    const expanded = cpExpanded.has(c.email);
+    const nameHtml = c.name
+      ? `<span class="cp-name">${escapeHtml(c.name)}</span>`
+      : `<span class="cp-name empty">(no name)</span>`;
+    const owesBadge = c.owes_reply_count > 0
+      ? `<span class="cp-count owes" title="Gmail threads where you don't own the last turn">⟵ ${c.owes_reply_count}</span>`
+      : "";
+    const openBadge = `<span class="cp-count open" title="Open items across all sources (not handled, not captured)">${c.open_count}</span>`;
+    const handledBadge = c.handled_count > 0
+      ? `<span class="cp-count handled" title="Handled items: marked done or captured to Linear">✓ ${c.handled_count}</span>`
+      : "";
+    const srcBadges = (c.sources || []).map(s =>
+      `<span class="badge src-${escapeHtml(s)}" title="${escapeHtml(sourceLabel(s))}: ${c.counts_by_source[s] || 0}">${escapeHtml(sourceLabel(s))}</span>`
+    ).join("");
+    const last = c.last_seen ? fmtRelative(c.last_seen) : "—";
+
+    let drillin = "";
+    if (expanded) {
+      const ids = new Set(c.item_msg_ids || []);
+      const items = recent.filter(i => ids.has(i.msg_id));
+      if (items.length === 0) {
+        drillin = `<div class="cp-drillin"><div class="cp-empty" style="padding:10px 0;">No items currently in cache for this contact.</div></div>`;
+      } else {
+        items.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+        drillin = `<div class="cp-drillin">${items.map(it => renderContactItem(it)).join("")}</div>`;
+      }
+    }
+
+    return `
+      <div class="cp-row ${expanded ? 'expanded' : ''}" data-email="${escapeHtml(c.email)}">
+        <div class="cp-row-top">
+          ${nameHtml}
+          <span class="cp-counts">${owesBadge}${openBadge}${handledBadge}</span>
+        </div>
+        <div class="cp-sub">
+          <span class="cp-email">${escapeHtml(c.email)}</span>
+          ${c.company ? `<span>· ${escapeHtml(c.company)}</span>` : ""}
+          <span class="cp-source-badges">${srcBadges}</span>
+          <span style="margin-left:auto;">${escapeHtml(last)}</span>
+        </div>
+        ${drillin}
+      </div>
+    `;
+  }
+
+  function renderContactItem(item) {
+    const src = sourceOf(item);
+    const handledBadge = item.handled_at ? `<span class="badge handled">✓ done</span>` : "";
+    const linearBadge = item.linear_id
+      ? `<a href="${escapeHtml(item.linear_url || '#')}" target="_blank" rel="noopener" style="color:var(--accent);">→ ${escapeHtml(item.linear_identifier || 'Linear')}</a>`
+      : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR. 10-second undo before commit.">→ Linear</button>`;
+    const markDone = !item.handled_at && !item.linear_id
+      ? `<button class="mark-done-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Mark this handled — drops from view.">Mark done</button>`
+      : "";
+    const wikiBtn = (src === "gmail")
+      ? `<button class="wiki-btn ${item.wiki_ingested ? 'in-wiki' : ''}" data-msg-id="${escapeHtml(item.msg_id)}" title="Send this email to the curated wiki.">${item.wiki_ingested ? '✓ in wiki' : '+ Wiki'}</button>`
+      : "";
+    return `
+      <div class="cp-item">
+        <div class="cp-item-row1">
+          <a class="cp-item-subject" href="${escapeHtml(item.deeplink)}" target="_blank" rel="noopener" title="${escapeHtml(item.subject)}">${escapeHtml(item.subject || "(no subject)")}</a>
+          <span class="cp-item-date" title="${escapeHtml(fmtDate(item.date))}">${escapeHtml(fmtRelative(item.date))}</span>
+          <span class="badge src-${escapeHtml(src)}">${escapeHtml(sourceLabel(src))}</span>
+          ${handledBadge}
+        </div>
+        <div class="cp-item-actions">
+          ${linearBadge}
+          ${markDone}
+          ${wikiBtn}
+          <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="1h" title="Hide for 1 hour">Snooze 1h</button>
+          <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="tomorrow" title="Hide until 7am tomorrow">Snooze ↻</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderContacts() {
+    const q = (cpSearch.value || "").trim().toLowerCase();
+    const filtered = contactsCache.filter(c => contactMatchesSearch(c, q));
+    const sorted = sortContacts(filtered, cpSort.value);
+    if (sorted.length === 0) {
+      cpBody.innerHTML = `<div class="cp-empty">${q ? 'No contacts match your search.' : 'No contacts yet — poll first.'}</div>`;
+      return;
+    }
+    cpBody.innerHTML = sorted.map(renderContactRow).join("");
+  }
+
+  // Click delegation: row toggle + reuse linear/done/snooze handlers from the
+  // main itemsEl listener (declared in the same scope, so the functions exist).
+  cpBody.addEventListener("click", (e) => {
+    const linearBtn = e.target.closest("button.linear-btn");
+    if (linearBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      startLinearCapture(linearBtn.dataset.msgId, linearBtn);
+      return;
+    }
+    const wikiBtn = e.target.closest(".wiki-btn");
+    if (wikiBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      addToWiki(wikiBtn.dataset.msgId, wikiBtn);
+      return;
+    }
+    const markDoneBtn = e.target.closest(".mark-done-btn");
+    if (markDoneBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      markItemDone(markDoneBtn.dataset.source, markDoneBtn.dataset.msgId, markDoneBtn);
+      return;
+    }
+    const snoozeBtn = e.target.closest(".snooze-btn");
+    if (snoozeBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      snoozeItem(snoozeBtn.dataset.source, snoozeBtn.dataset.msgId, snoozeBtn.dataset.preset, snoozeBtn);
+      return;
+    }
+    const subjectLink = e.target.closest("a.cp-item-subject");
+    if (subjectLink) {
+      e.stopPropagation();      // don't toggle row when opening a deeplink
+      return;                    // let browser handle the link
+    }
+    const row = e.target.closest(".cp-row");
+    if (row) {
+      const email = row.dataset.email;
+      if (cpExpanded.has(email)) cpExpanded.delete(email);
+      else cpExpanded.add(email);
+      renderContacts();
+    }
+  });
 
   refreshGmailStatus().then(() => {
     if (!gmailPanel.hidden) loadCachedItems();
   });
   refreshSlackStatus();
   refreshFreshserviceStatus();
+  refreshOtterStatus();
   renderItems();
 
   // Source-pill filter (clicks on the per-source counter strip)
@@ -2081,6 +3148,26 @@
     console.debug("freshservice_poll_complete", d);
   });
 
+  es.addEventListener("otter_item", (e) => {
+    pushItem(JSON.parse(e.data));
+  });
+
+  es.addEventListener("otter_linearized", (e) => {
+    const d = JSON.parse(e.data);
+    const item = recent.find(i => i.msg_id === d.msg_id);
+    if (item && !item.linear_id) {
+      item.linear_id = d.linear_id;
+      item.linear_url = d.linear_url;
+      item.linear_identifier = d.linear_identifier;
+      renderItems();
+    }
+  });
+
+  es.addEventListener("otter_poll_complete", (e) => {
+    const d = JSON.parse(e.data);
+    console.debug("otter_poll_complete", d);
+  });
+
   es.addEventListener("gmail_poll_complete", (e) => {
     const d = JSON.parse(e.data);
     gmailMeta.textContent = `+${d.new_count} new · ${d.queried_total} in window · ${d.total_seen_all_time} seen total`;
@@ -2096,6 +3183,42 @@
       renderItems();
     }
   });
+
+  // ─── Phase 1.7 SSE listeners: handled / snoozed sync ────
+  function applyHandled(msgId, handledAt) {
+    const item = recent.find(i => i.msg_id === msgId);
+    if (item) { item.handled_at = handledAt; renderItems(); }
+  }
+  function applyUnhandled(msgId) {
+    const item = recent.find(i => i.msg_id === msgId);
+    if (item) { delete item.handled_at; renderItems(); }
+  }
+  function applySnoozed(msgId, snoozeUntil) {
+    const item = recent.find(i => i.msg_id === msgId);
+    if (item) { item.snooze_until = snoozeUntil; renderItems(); }
+  }
+  function applyUnsnoozed(msgId) {
+    const item = recent.find(i => i.msg_id === msgId);
+    if (item) { delete item.snooze_until; renderItems(); }
+  }
+  for (const src of ["gmail", "slack", "freshservice", "otter"]) {
+    es.addEventListener(`${src}_handled`, (e) => {
+      const d = JSON.parse(e.data);
+      applyHandled(d.msg_id, d.handled_at);
+    });
+    es.addEventListener(`${src}_unhandled`, (e) => {
+      const d = JSON.parse(e.data);
+      applyUnhandled(d.msg_id);
+    });
+    es.addEventListener(`${src}_snoozed`, (e) => {
+      const d = JSON.parse(e.data);
+      applySnoozed(d.msg_id, d.snooze_until);
+    });
+    es.addEventListener(`${src}_unsnoozed`, (e) => {
+      const d = JSON.parse(e.data);
+      applyUnsnoozed(d.msg_id);
+    });
+  }
 
   es.onerror = () => {
     status.classList.add("err");

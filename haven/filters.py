@@ -160,25 +160,46 @@ def remove_watchlist_keyword(keyword: str) -> list[str]:
         return new
 
 
-def watchlist_match(text: str) -> str | None:
-    """Return the first watchlist keyword found in `text` (case-insensitive whole-word).
+def watchlist_match(
+    subject: str = "",
+    sender_email: str = "",
+    sender_domain: str = "",
+    sender_name: str = "",
+) -> str | None:
+    """Return the first watchlist keyword that matches subject or sender info.
 
-    The whole-word boundary `\\b` keeps "permit" from matching e.g. "supermarket"
-    but allows "permits", "permitted", etc. (those still contain "permit" but not
-    as a whole word — `\\bpermit\\b` matches the standalone form). Adjust per
-    keyword by adding variants explicitly to the list.
+    Matching strategy:
+      - subject: case-insensitive **whole-word** match (`\\b<kw>\\b`). Whole-word
+        keeps a keyword like "permit" from matching "supermarket". Add variants
+        ("permits", "permitted") explicitly if you want them too.
+      - sender_email / sender_domain / sender_name: case-insensitive **substring**
+        match. So a watchlist entry of "clearsulting" matches
+        "josh.bartucci@clearsulting.com" (and the bare domain). That's the
+        intent for company/vendor watchlists — list the brand once and every
+        variant address from that vendor is caught.
+
+    Returns the first matching keyword (in watchlist insertion order) or None.
     """
-    if not text:
-        return None
     kws = _load_watchlist_raw()
     if not kws:
         return None
+
+    sender_blob = " ".join(
+        s for s in (sender_email, sender_domain, sender_name) if s
+    ).lower()
+
     for kw in kws:
-        try:
-            if re.search(rf"\b{re.escape(kw)}\b", text, re.IGNORECASE):
-                return kw
-        except re.error:
-            continue
+        kw_lc = kw.lower()
+        # Subject: whole-word match (false-positive avoidance).
+        if subject:
+            try:
+                if re.search(rf"\b{re.escape(kw)}\b", subject, re.IGNORECASE):
+                    return kw
+            except re.error:
+                pass
+        # Sender info: substring match (partial allowed).
+        if sender_blob and kw_lc in sender_blob:
+            return kw
     return None
 
 
@@ -197,6 +218,7 @@ def apply_filter(payload: dict[str, Any]) -> tuple[str, str, dict]:
 
     sender = (payload.get("sender_email") or "").lower()
     sender_domain = (payload.get("sender_domain") or "").lower()
+    sender_name = (payload.get("sender_name") or "").lower()
     subject = payload.get("subject") or ""
     flags: dict = {}
 
@@ -205,8 +227,16 @@ def apply_filter(payload: dict[str, Any]) -> tuple[str, str, dict]:
     if blocked:
         return Decision.REJECT, blk_reason, flags
 
-    # ─── Watchlist (force-keep on subject keyword) ──────────
-    matched_kw = watchlist_match(subject)
+    # ─── Watchlist (force-keep on subject OR sender match) ──
+    # Subject uses whole-word, sender_email/domain/name use substring — so an
+    # entry like "clearsulting" catches anyone @clearsulting.com without
+    # accidentally matching unrelated text.
+    matched_kw = watchlist_match(
+        subject=subject,
+        sender_email=sender,
+        sender_domain=sender_domain,
+        sender_name=sender_name,
+    )
     if matched_kw:
         flags["watchlist_match"] = matched_kw
         return Decision.ACCEPT, f"watchlist: {matched_kw}", flags

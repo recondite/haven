@@ -1,0 +1,10 @@
+name: otter
+enabled: true
+poll_seconds: 1800   # 30 minutes — meetings finish in real-time, this catches new ARs within a half-hour
+
+identity:
+  email: garth@ayarlabs.com   # ARs surfaced only when assignee.email matches this
+
+scoring:
+  lookback_days: 7
+  max_concurrent_fetches: 5   # parallel /conversations/{id} fetches per poll

@@ -8,9 +8,6 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
-
 from haven import enrichment
 from haven.sources.gmail_auth import GmailAuth
 
@@ -169,20 +166,19 @@ class GmailFetcher:
         # Cache of {label_name_lower: label_id} for labels we've created or resolved.
         self._label_ids: dict[str, str] = {}
 
-    def _service(self):
-        creds = self.auth.credentials()
-        if creds is None:
+    async def _service(self):
+        """Shared, cached Gmail service (refresh-safe). Delegates to GmailAuth so
+        every fetcher reuses one service and one refresh lock."""
+        service = await self.auth.get_service()
+        if service is None:
             raise RuntimeError("Gmail not authorized — connect Gmail first")
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            self.auth.token_path.write_text(creds.to_json())
-        return build("gmail", "v1", credentials=creds, cache_discovery=False)
+        return service
 
     async def user_email(self) -> str:
         """Cache and return the authed user's primary email address."""
         if self._user_email is not None:
             return self._user_email
-        service = self._service()
+        service = await self._service()
         profile = await asyncio.to_thread(
             lambda: service.users().getProfile(userId="me").execute()
         )
@@ -197,7 +193,7 @@ class GmailFetcher:
         """
         if self._labels_map is not None:
             return self._labels_map
-        service = self._service()
+        service = await self._service()
         result = await asyncio.to_thread(
             lambda: service.users().labels().list(userId="me").execute()
         )
@@ -216,7 +212,7 @@ class GmailFetcher:
         cached = self._label_ids.get(key)
         if cached is not None:
             return cached
-        service = self._service()
+        service = await self._service()
 
         def _list_labels() -> dict:
             return service.users().labels().list(userId="me").execute()
@@ -261,7 +257,7 @@ class GmailFetcher:
         if not msg_ids:
             return 0
         label_id = await self.ensure_label(label_name)
-        service = self._service()
+        service = await self._service()
 
         def _batch() -> None:
             service.users().messages().batchModify(
@@ -284,7 +280,7 @@ class GmailFetcher:
                 "garth_owns_last_turn": False,
                 "thread_message_count": 0,
             }
-        service = self._service()
+        service = await self._service()
 
         def _do_get() -> dict:
             return (
@@ -303,7 +299,7 @@ class GmailFetcher:
         return enrichment.derive_thread_state(thread.get("messages", []) or [], user_email)
 
     async def list_message_ids(self, max_per_query: int = 100) -> list[str]:
-        service = self._service()
+        service = await self._service()
         seen: set[str] = set()
         ordered: list[str] = []
 
@@ -332,7 +328,7 @@ class GmailFetcher:
         Returns a dict shaped like a partial GmailItem.summary() so it plugs into the
         same filter logic.
         """
-        service = self._service()
+        service = await self._service()
 
         def _do_get() -> dict:
             return (
@@ -370,7 +366,7 @@ class GmailFetcher:
         }
 
     async def fetch_message(self, msg_id: str) -> GmailItem:
-        service = self._service()
+        service = await self._service()
 
         def _do_get() -> dict:
             return (

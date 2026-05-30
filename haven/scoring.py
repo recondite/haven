@@ -4,6 +4,7 @@ This is the Phase 1.4 layer on top of deterministic enrichment (Phase 1.3).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -167,8 +168,6 @@ async def score_emails_concurrent(
     max_concurrent: int = 3,
 ) -> list[dict[str, Any]]:
     """Score many items in parallel. Order matches the input list."""
-    import asyncio
-
     sem = asyncio.Semaphore(max_concurrent)
 
     async def _one(it: GmailItem) -> dict[str, Any]:
@@ -293,17 +292,3 @@ async def score_slack(item: dict) -> dict[str, Any]:
     except Exception as e:
         log.warning("Slack score parse failed for %s: %s (raw=%r)", msg_id, e, result)
         return {**DEFAULT_SCORE, "score_error": f"parse: {e}"}
-
-
-async def score_slacks_concurrent(
-    items: list[dict],
-    max_concurrent: int = 3,
-) -> list[dict[str, Any]]:
-    import asyncio
-    sem = asyncio.Semaphore(max_concurrent)
-
-    async def _one(it: dict) -> dict[str, Any]:
-        async with sem:
-            return await score_slack(it)
-
-    return await asyncio.gather(*[_one(i) for i in items])

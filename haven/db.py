@@ -115,6 +115,15 @@ class CursorStore:
             )
             return {row[0] for row in cur.fetchall()}
 
+    def list_rejected_ids(self, source: str) -> list[str]:
+        """All item_ids currently marked rejected for a source (pre-filter rejects)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT item_id FROM seen_items WHERE source = ? AND status = 'rejected'",
+                (source,),
+            )
+            return [row[0] for row in cur.fetchall() if row[0]]
+
     def mark_rejected(self, source: str, item_id: str, reason: str) -> None:
         with self._lock:
             self._conn.execute(

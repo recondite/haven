@@ -157,6 +157,7 @@ class FreshserviceClient:
         self.domain = config.FRESHSERVICE_DOMAIN or ""
         self.api_key = config.FRESHSERVICE_API_KEY or ""
         self._agent_id: int | None = None
+        self._client: httpx.AsyncClient | None = None
 
     @property
     def base(self) -> str:
@@ -167,6 +168,17 @@ class FreshserviceClient:
         # HTTP Basic: api_key:X
         token = base64.b64encode(f"{self.api_key}:X".encode()).decode()
         return f"Basic {token}"
+
+    def _http(self) -> httpx.AsyncClient:
+        """Lazily create + reuse one client across a poll's calls."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=30)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def _call(
         self,
@@ -181,8 +193,8 @@ class FreshserviceClient:
             raise RuntimeError("Freshservice not configured (FRESHSERVICE_DOMAIN/FRESHSERVICE_API_KEY)")
         headers = {"Authorization": self._auth_header, "Content-Type": "application/json"}
         url = f"{self.base}{path}"
-        async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.request(method, url, headers=headers, params=params or {}, json=json)
+        c = self._http()
+        r = await c.request(method, url, headers=headers, params=params or {}, json=json)
 
         if r.status_code == 429 and not retried:
             wait = float(r.headers.get("Retry-After", "1"))
@@ -280,6 +292,13 @@ class FreshserviceFetcher:
         return f"({agent_clause}) AND ({status_clause})"
 
     async def fetch_all(self) -> list[FreshserviceItem]:
+        """Public entry: runs the fetch and always closes the shared HTTP client."""
+        try:
+            return await self._fetch_all()
+        finally:
+            await self.client.aclose()
+
+    async def _fetch_all(self) -> list[FreshserviceItem]:
         agent_id = await self.client.self_agent_id(self.email or None)
         query = self._build_query(agent_id)
         log.info("Freshservice query: %s", query)

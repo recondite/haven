@@ -1,5 +1,7 @@
 """Gmail OAuth flow — generates auth URL, handles callback, persists token."""
+import asyncio
 import os
+import tempfile
 
 # When upgrading scopes (e.g. readonly -> modify) Google merges previously-granted
 # scopes into the token response. The default oauthlib check rejects that as a
@@ -32,6 +34,11 @@ class GmailAuth:
         self.token_path = token_path
         # PKCE: state -> code_verifier captured during begin(), replayed in complete().
         self._pending: dict[str, str] = {}
+        # Guards token refresh + persistence so concurrent fetchers don't each
+        # refresh and race-write the token file. Also gates the cached service.
+        self._refresh_lock = asyncio.Lock()
+        self._service = None
+        self._creds: Optional[Credentials] = None
 
     def _flow(self, state: str | None = None) -> Flow:
         client_config = {
@@ -74,8 +81,59 @@ class GmailAuth:
         flow.fetch_token(authorization_response=full_callback_url)
         creds = flow.credentials
 
+        self._persist_token(creds.to_json())
+        # Invalidate caches so the next get_service() picks up the new token.
+        self._creds = None
+        self._service = None
+
+    def _persist_token(self, token_json: str) -> None:
+        """Write the token file atomically so concurrent refreshes can't corrupt it.
+
+        Writes to a temp file in the same directory and os.replace()s it into place
+        (atomic on POSIX and Windows for same-volume renames).
+        """
         self.token_path.parent.mkdir(parents=True, exist_ok=True)
-        self.token_path.write_text(creds.to_json())
+        fd, tmp = tempfile.mkstemp(
+            dir=str(self.token_path.parent), prefix=".gmail-token-", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(token_json)
+            os.replace(tmp, self.token_path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+    async def get_service(self):
+        """Return a cached, authorized Gmail API service, refreshing the token if
+        needed. Returns None if Gmail isn't authorized yet.
+
+        Serializes refresh + persistence under a lock so parallel pollers don't
+        each refresh and race-write the token file. The built service is cached on
+        the auth object and shared across every GmailFetcher, avoiding the repeated
+        discovery-client construction the old per-call `_service()` paid.
+        """
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+
+        async with self._refresh_lock:
+            if self._creds is None:
+                self._creds = self.credentials()
+            creds = self._creds
+            if creds is None:
+                return None
+            if creds.expired and creds.refresh_token:
+                await asyncio.to_thread(creds.refresh, Request())
+                self._persist_token(creds.to_json())
+                self._service = None  # rebuild against refreshed creds
+            if self._service is None:
+                self._service = build(
+                    "gmail", "v1", credentials=creds, cache_discovery=False
+                )
+            return self._service
 
     def is_authed(self) -> bool:
         return self.token_path.exists()

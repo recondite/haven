@@ -15,6 +15,14 @@ load_dotenv(ROOT / ".env")
 HAVEN_HOST = os.getenv("HAVEN_HOST", "127.0.0.1")
 HAVEN_PORT = int(os.getenv("HAVEN_PORT", "8765"))
 
+# Quiet hours — no automatic polls fire in this local-time window (manual
+# "Poll now" still works). Also used as the wake hour for the "tomorrow" snooze.
+QUIET_HOURS_START = int(os.getenv("HAVEN_QUIET_HOURS_START", "0"))   # midnight
+QUIET_HOURS_END = int(os.getenv("HAVEN_QUIET_HOURS_END", "7"))       # 7 AM (exclusive)
+
+# Sources Haven knows how to poll/cache. Used to validate {source} path params.
+KNOWN_SOURCES = ("gmail", "slack", "freshservice", "otter")
+
 # LLM
 LLM_MODE = os.getenv("HAVEN_LLM_MODE", "cli")
 LLM_MODEL = os.getenv("HAVEN_LLM_MODEL", "claude-sonnet-4-6")
@@ -47,3 +55,7 @@ JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
 # Freshservice
 FRESHSERVICE_DOMAIN = os.getenv("FRESHSERVICE_DOMAIN")
 FRESHSERVICE_API_KEY = os.getenv("FRESHSERVICE_API_KEY")
+
+# Otter.ai
+OTTER_API_KEY = os.getenv("OTTER_API_KEY")
+OTTER_API_BASE = os.getenv("OTTER_API_BASE", "https://api.otter.ai/v1")

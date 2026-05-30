@@ -129,14 +129,27 @@ class SlackClient:
         self.bot_token = config.SLACK_BOT_TOKEN
         self._self_user_id: str | None = None
         self._team_domain: str | None = None
+        self._client: httpx.AsyncClient | None = None
+
+    def _http(self) -> httpx.AsyncClient:
+        """Lazily create + reuse one client so a poll's many calls share a
+        connection pool instead of paying a fresh TCP+TLS handshake each time."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=30)
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def _call(self, method: str, params: dict | None = None, *, use_bot: bool = False, retried: bool = False) -> dict:
         token = self.bot_token if use_bot else self.user_token
         if not token:
             raise RuntimeError(f"Slack token missing for {'bot' if use_bot else 'user'}")
         headers = {"Authorization": f"Bearer {token}"}
-        async with httpx.AsyncClient(timeout=30) as c:
-            r = await c.get(f"{SLACK_API}/{method}", headers=headers, params=params or {})
+        c = self._http()
+        r = await c.get(f"{SLACK_API}/{method}", headers=headers, params=params or {})
 
         if r.status_code == 429 and not retried:
             wait = float(r.headers.get("Retry-After", "1"))
@@ -435,26 +448,29 @@ class SlackFetcher:
     async def fetch_all(self, since: float | None = None) -> list[SlackItem]:
         if since is None:
             since = time.time() - self.lookback
-        await self._ensure_team_domain()
-        results = await asyncio.gather(
-            self.fetch_dms(since),
-            self.fetch_watched_channels(since),
-            self.fetch_mentions(since),
-            self.fetch_from_watched_users(since),
-            return_exceptions=True,
-        )
-        merged: dict[str, SlackItem] = {}
-        for r in results:
-            if isinstance(r, Exception):
-                log.error("Slack sub-fetch failed: %s", r)
-                continue
-            for item in r:
-                if item.msg_id in merged:
-                    p = merged[item.msg_id]
-                    p.is_dm = p.is_dm or item.is_dm
-                    p.is_mention = p.is_mention or item.is_mention
-                    p.is_watched_channel = p.is_watched_channel or item.is_watched_channel
-                    p.is_watched_user = p.is_watched_user or item.is_watched_user
-                else:
-                    merged[item.msg_id] = item
-        return sorted(merged.values(), key=lambda i: float(i.ts), reverse=True)
+        try:
+            await self._ensure_team_domain()
+            results = await asyncio.gather(
+                self.fetch_dms(since),
+                self.fetch_watched_channels(since),
+                self.fetch_mentions(since),
+                self.fetch_from_watched_users(since),
+                return_exceptions=True,
+            )
+            merged: dict[str, SlackItem] = {}
+            for r in results:
+                if isinstance(r, Exception):
+                    log.error("Slack sub-fetch failed: %s", r)
+                    continue
+                for item in r:
+                    if item.msg_id in merged:
+                        p = merged[item.msg_id]
+                        p.is_dm = p.is_dm or item.is_dm
+                        p.is_mention = p.is_mention or item.is_mention
+                        p.is_watched_channel = p.is_watched_channel or item.is_watched_channel
+                        p.is_watched_user = p.is_watched_user or item.is_watched_user
+                    else:
+                        merged[item.msg_id] = item
+            return sorted(merged.values(), key=lambda i: float(i.ts), reverse=True)
+        finally:
+            await self.client.aclose()

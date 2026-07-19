@@ -8,6 +8,7 @@ append-only so a bad extraction is visible at the gate, never silent.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
 import hashlib
 import logging
@@ -122,6 +123,54 @@ async def ingest_document(title_hint: str, filename: str, data: bytes,
     draft_id = spine.create_draft(None, "wiki", target, page, evidence=evidence)
     return {"draft_id": draft_id, "target": target, "duplicate_warning": bool(dups),
             "chars": len(text), "truncated": len(text) > _LLM_CHAR_BUDGET}
+
+
+# ─── Google Docs link ingest (M6) ────────────────────────
+_GDOC_ID_RE = re.compile(r"/document/d/([a-zA-Z0-9_-]+)")
+_DRIVE_ID_RE = re.compile(r"[?&]id=([a-zA-Z0-9_-]+)|/file/d/([a-zA-Z0-9_-]+)")
+
+
+def _extract_file_id(url: str) -> str | None:
+    m = _GDOC_ID_RE.search(url or "")
+    if m:
+        return m.group(1)
+    m = _DRIVE_ID_RE.search(url or "")
+    if m:
+        return m.group(1) or m.group(2)
+    return None
+
+
+async def ingest_gdoc(url: str) -> dict:
+    """Fetch a Google Doc via read-only Drive export → same structuring/approval
+    pipeline as an upload. Google Docs only in v0 (Sheets/Slides are a tripwire)."""
+    from haven.deps import gmail_auth
+    file_id = _extract_file_id(url)
+    if not file_id:
+        raise IngestError("could not find a Google Doc id in that link")
+    service = await gmail_auth.get_drive_service()
+    if service is None:
+        raise IngestError("Google Drive not authorized — re-run /oauth/authorize to grant "
+                          "the read-only Docs scope")
+
+    def _fetch() -> tuple[str, str]:
+        meta = service.files().get(fileId=file_id, fields="name,mimeType").execute()
+        if meta.get("mimeType") != "application/vnd.google-apps.document":
+            raise IngestError(f"only Google Docs supported in v0, not {meta.get('mimeType')}")
+        data = service.files().export(fileId=file_id, mimeType="text/plain").execute()
+        return meta.get("name") or "Google Doc", (data.decode("utf-8", "replace")
+                                                   if isinstance(data, bytes) else str(data))
+
+    try:
+        name, text = await asyncio.to_thread(_fetch)
+    except IngestError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise IngestError(f"Drive fetch failed (check access to the doc): {e}")
+    if not text.strip():
+        raise IngestError("Google Doc exported empty")
+    return await ingest_document(
+        title_hint=name, filename=f"{name}.gdoc.txt", data=text.encode("utf-8"),
+        origin="gdoc", extra_prov={"gdoc_url": url})
 
 
 def list_recent(limit: int = 20) -> list[dict]:

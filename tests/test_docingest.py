@@ -90,6 +90,30 @@ def test_duplicate_warning_attached(env):
     assert res["duplicate_warning"] is True
 
 
+# ─── M6 google docs ──────────────────────────────────────
+def test_extract_file_id():
+    assert docingest._extract_file_id(
+        "https://docs.google.com/document/d/1AbC_dEf-123/edit") == "1AbC_dEf-123"
+    assert docingest._extract_file_id(
+        "https://drive.google.com/file/d/9XyZ99/view") == "9XyZ99"
+    assert docingest._extract_file_id("https://example.com/nope") is None
+
+
+def test_gdoc_bad_link(env):
+    with pytest.raises(docingest.IngestError, match="Google Doc id"):
+        run(docingest.ingest_gdoc("https://example.com/nope"))
+
+
+def test_gdoc_unauthorized(env, monkeypatch):
+    class FakeAuth:
+        async def get_drive_service(self):
+            return None
+    import haven.deps
+    monkeypatch.setattr(haven.deps, "gmail_auth", FakeAuth())
+    with pytest.raises(docingest.IngestError, match="not authorized"):
+        run(docingest.ingest_gdoc("https://docs.google.com/document/d/ABC/edit"))
+
+
 def test_truncation_marker(env, monkeypatch):
     monkeypatch.setattr(docingest, "_LLM_CHAR_BUDGET", 50)
     res = run(docingest.ingest_document("Long", "long.txt", b"x" * 500, "upload"))

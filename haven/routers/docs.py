@@ -26,6 +26,21 @@ async def upload(file: UploadFile = File(...), title: str = Form("")) -> dict:
         raise HTTPException(500, f"ingest failed: {type(e).__name__}: {e}")
 
 
+@router.post("/ingest-gdoc")
+async def ingest_gdoc(payload: dict) -> dict:
+    """Ingest a Google Doc by link (read-only export) → source-page draft."""
+    url = (payload.get("url") or "").strip()
+    if not url:
+        raise HTTPException(400, "url required")
+    try:
+        return await docingest.ingest_gdoc(url)
+    except docingest.IngestError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001
+        log.error("gdoc ingest failed: %s", e)
+        raise HTTPException(500, f"gdoc ingest failed: {type(e).__name__}: {e}")
+
+
 @router.get("/ingests")
 async def ingests() -> dict:
     return {"ingests": docingest.list_recent()}

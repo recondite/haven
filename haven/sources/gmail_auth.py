@@ -22,9 +22,12 @@ from google_auth_oauthlib.flow import Flow
 # send GT-approved reply drafts. Send-only: it grants no read or delete beyond
 # what gmail.modify already covers. Existing tokens lack it — /oauth/authorize
 # must be re-run once; /api/auth/gmail/status surfaces scopes_ok until then.
+# drive.readonly (GT-approved 2026-07-19, build plan v2 M6) lets the document
+# ingest read/export Google Docs the user links. Read-only: no create/edit/delete.
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 
@@ -143,6 +146,24 @@ class GmailAuth:
                 )
             return self._service
 
+    async def get_drive_service(self):
+        """Authorized Drive v3 service (read-only scope). None if unauthorized or
+        the drive.readonly scope hasn't been granted yet (needs re-auth)."""
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+        if not self.has_required_scopes():
+            return None
+        async with self._refresh_lock:
+            if self._creds is None:
+                self._creds = self.credentials()
+            creds = self._creds
+            if creds is None:
+                return None
+            if creds.expired and creds.refresh_token:
+                await asyncio.to_thread(creds.refresh, Request())
+                self._persist_token(creds.to_json())
+            return build("drive", "v3", credentials=creds, cache_discovery=False)
+
     def new_http(self, timeout: int = 30):
         """Return a fresh AuthorizedHttp wrapping a brand-new httplib2.Http.
 
@@ -158,7 +179,6 @@ class GmailAuth:
         thread.
         """
         import httplib2
-
         from google_auth_httplib2 import AuthorizedHttp
 
         if self._creds is None:

@@ -28,6 +28,7 @@ from haven.events import bus
 from haven.routers import (
     contacts,
     dispatch,
+    docs,
     evals,
     freshservice,
     gmail,
@@ -327,6 +328,7 @@ app.include_router(dispatch.router)
 app.include_router(identity.router)
 app.include_router(evals.router)
 app.include_router(knowledge.router)
+app.include_router(docs.router)
 app.include_router(system.router)
 
 

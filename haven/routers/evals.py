@@ -10,3 +10,8 @@ router = APIRouter(prefix="/api/eval", tags=["eval"])
 @router.post("/scoring")
 async def scoring_eval() -> dict:
     return await eval_mod.run_eval()
+
+
+@router.get("/retrieval")
+async def retrieval() -> dict:
+    return eval_mod.retrieval_eval()

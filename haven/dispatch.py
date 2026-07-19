@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from haven import config, runtime
+from haven import config, knowledge, runtime
 from haven.db import cursor_store
 from haven.spine import spine
 
@@ -16,13 +16,16 @@ log = logging.getLogger("haven")
 
 
 async def draft_reply_slack(item: dict) -> dict:
-    """Draft a Slack reply to a cached Slack message. Returns the draft spec."""
+    """Draft a Slack reply to a cached Slack message. Returns the draft spec.
+    M2: grounded in SecondBrain via context_pack; citations ride in evidence."""
     sender = item.get("sender") or "someone"
     text = item.get("snippet") or item.get("summary") or ""
+    pack = knowledge.context_pack(item)
     prompt = (
         "You are drafting a Slack reply that Garth Thompson (CIO, Ayar Labs) will "
         "review before sending. Keep it concise, professional, and direct — lead "
         "with the answer. Do not invent facts you were not given.\n\n"
+        f"{knowledge.render_pack(pack)}"
         f"Message from {sender}:\n{text}\n\n"
         "Output ONLY the reply text, no preamble."
     )
@@ -31,7 +34,8 @@ async def draft_reply_slack(item: dict) -> dict:
         "kind": "slack",
         "target": item.get("msg_id", ""),   # channel:ts — where the reply would post
         "payload": reply,
-        "evidence": [{"source": "slack", "msg_id": item.get("msg_id"), "excerpt": text[:500]}],
+        "evidence": [{"source": "slack", "msg_id": item.get("msg_id"), "excerpt": text[:500]}]
+                    + pack["citations"],
     }
 
 
@@ -42,11 +46,13 @@ async def draft_reply_email(item: dict) -> dict:
     sender = item.get("sender") or item.get("from") or "the sender"
     subject = item.get("subject") or ""
     body = item.get("snippet") or item.get("summary") or ""
+    pack = knowledge.context_pack(item)
     prompt = (
         "You are drafting an email reply that Garth Thompson (CIO, Ayar Labs) will "
         "review before sending. Style: lead with the answer; bullets over prose; "
         "1-2 lines when possible; professional; sign off exactly 'Thanks, GT'. "
         "Do not invent facts you were not given.\n\n"
+        f"{knowledge.render_pack(pack)}"
         f"Email from {sender}\nSubject: {subject}\n\n{body}\n\n"
         "Output ONLY the reply body text, no subject line, no preamble."
     )
@@ -56,7 +62,8 @@ async def draft_reply_email(item: dict) -> dict:
         "target": item.get("msg_id", ""),
         "payload": reply,
         "evidence": [{"source": "gmail", "msg_id": item.get("msg_id"),
-                      "excerpt": f"{subject} — {body[:400]}"}],
+                      "excerpt": f"{subject} — {body[:400]}"}]
+                    + pack["citations"],
     }
 
 

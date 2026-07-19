@@ -68,6 +68,55 @@ GOLDEN: list[dict] = [
 ]
 
 
+# ─── Retrieval benchmark (M2 — installs the persistent-index tripwire) ───
+# Real lookups against the real SecondBrain. Expected = substring of the page
+# path that should rank. Misses are informative (they're the recall gap the
+# gated index work would need to justify itself against).
+RETRIEVAL_GOLDEN: list[tuple[str, str]] = [
+    ("TeraPHY optical engine", "teraphy"),
+    ("RACI org adoption", "raci"),
+    ("optical I/O", "optical-io"),
+    ("UCIe chiplet interconnect", "ucie"),
+    ("Alchip ASIC partner", "alchip"),
+    ("Garth Thompson CIO", "garth-thompson"),
+    ("Mark Wade", "mark-wade"),
+    ("Chen Sun", "chen-sun"),
+    ("data pillars team", "data-pillars"),
+    ("Craig Barratt board", "craig-barratt"),
+    ("Milos Popovic founder", "milos-popovic"),
+    ("SuperNova light source", "supernova"),
+]
+
+
+def retrieval_eval() -> dict:
+    """recall@1/@3 + latency for the call-time retriever over real queries.
+    Tripwire (build plan v2 §Track C): persistent index work is licensed only if
+    recall@3 < 0.85 here or grounded-draft latency implicates retrieval."""
+    import time as _time
+
+    from haven import knowledge
+    cases = []
+    r1 = r3 = 0
+    t0 = _time.perf_counter()
+    for query, expected in RETRIEVAL_GOLDEN:
+        hits = knowledge.search(query, limit=3)
+        paths = [h["path"] for h in hits]
+        hit1 = bool(paths) and expected in paths[0]
+        hit3 = any(expected in p for p in paths)
+        r1 += int(hit1)
+        r3 += int(hit3)
+        cases.append({"query": query, "expected": expected, "top3": paths,
+                      "recall1": hit1, "recall3": hit3})
+    elapsed_ms = round((_time.perf_counter() - t0) * 1000, 1)
+    n = len(RETRIEVAL_GOLDEN)
+    return {
+        "n": n, "recall_at_1": round(r1 / n, 3), "recall_at_3": round(r3 / n, 3),
+        "total_ms": elapsed_ms, "ms_per_query": round(elapsed_ms / n, 1),
+        "tripwire": "index work licensed" if (r3 / n) < 0.85 else "index NOT licensed (recall fine)",
+        "cases": cases,
+    }
+
+
 async def run_eval(rt: runtime.Runtime | None = None) -> dict:
     """Score every golden case through the active (or given) runtime; report
     tag/urgency accuracy. On-demand (a full run hits the model N times)."""

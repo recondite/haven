@@ -909,7 +909,19 @@ function renderApprDetail() {
       : `<div class="draft-box">${esc(d.payload || '')}</div>`}
     <div class="draft-tools"><span>1 approval = 1 send · nothing sends without you</span><span>${(d.payload || '').length} chars</span></div>
     <div class="sec-title">Evidence · ${ev.length} cited item${ev.length === 1 ? '' : 's'}</div>
-    ${ev.length ? ev.map(e => `<div class="evi"><div class="evi-l1"><span class="evi-cite">${esc(e.msg_id || '')}</span>${SRC[e.source] ? glyph(e.source) : ''}<span>${esc(e.source || '')}</span></div>${e.excerpt ? `<div class="evi-q">${esc(e.excerpt)}</div>` : ''}</div>`).join('')
+    ${ev.length ? ev.map(e => {
+      if (e.source === 'secondbrain') {
+        // M2: wiki citation with freshness — amber >180d, red if deprecated/unknown-date
+        const age = e.age_days;
+        const stale = e.status === 'deprecated' ? 'dep' : (age == null ? 'unk' : (age > 180 ? 'old' : 'ok'));
+        const chipStyle = stale === 'ok' ? 'background:var(--ok-dim);color:var(--ok)'
+          : stale === 'old' ? 'background:var(--warn-dim);color:var(--warn)'
+          : 'background:var(--err-dim);color:var(--err)';
+        const chipTxt = stale === 'dep' ? 'DEPRECATED' : age == null ? 'no date' : age + 'd old';
+        return `<div class="evi"><div class="evi-l1"><span class="evi-cite">${esc(e.path || '')}#${esc(e.heading || '')}</span><span>wiki · ${esc(e.why || '')}</span><span class="tag" style="${chipStyle};margin-left:auto" title="Page freshness — verify stale facts before approving">${chipTxt}</span></div></div>`;
+      }
+      return `<div class="evi"><div class="evi-l1"><span class="evi-cite">${esc(e.msg_id || '')}</span>${SRC[e.source] ? glyph(e.source) : ''}<span>${esc(e.source || '')}</span></div>${e.excerpt ? `<div class="evi-q">${esc(e.excerpt)}</div>` : ''}</div>`;
+    }).join('')
                : '<div style="font-size:11.5px;color:var(--faint)">No evidence attached to this draft.</div>'}
     <div class="dp-actions" style="margin-top:18px">
     ${state.editingDraft === d.id

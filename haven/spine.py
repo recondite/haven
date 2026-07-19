@@ -378,6 +378,36 @@ class Spine:
             )
             self._conn.commit()
 
+    def action_verb_counts(self, days: int = 30) -> dict:
+        """Executor outbound-verb usage over the window: count + last-used per
+        kind (M4 trust panel). These are the highest-risk write paths — the
+        ones the executor actually performs."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT kind, COUNT(*) n, MAX(created_at) last, "
+                "  SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) sent, "
+                "  SUM(CASE WHEN status='dry_run' THEN 1 ELSE 0 END) dry "
+                "FROM action WHERE created_at >= datetime('now', ?) GROUP BY kind",
+                (f"-{int(days)} days",),
+            ).fetchall()
+            return {r["kind"]: {"count": r["n"], "last_used": r["last"],
+                               "sent": r["sent"], "dry_run": r["dry"]} for r in rows}
+
+    def feedback_by_agent(self) -> list[dict]:
+        """approved_clean / edited / rejected counts per dispatch agent (M4)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT j.agent, f.verdict, COUNT(*) n "
+                "FROM feedback f JOIN draft d ON d.id=f.draft_id "
+                "JOIN job j ON j.id=d.job_id GROUP BY j.agent, f.verdict"
+            ).fetchall()
+        agg: dict[str, dict] = {}
+        for r in rows:
+            a = agg.setdefault(r["agent"], {"agent": r["agent"], "approved_clean": 0,
+                                            "edited": 0, "rejected": 0})
+            a[r["verdict"]] = r["n"]
+        return list(agg.values())
+
     def edited_drafts(self) -> list[dict]:
         """Drafts GT edited before approving (original_payload vs payload) — the
         raw signal for style distillation (M1)."""

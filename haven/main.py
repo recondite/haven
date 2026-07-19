@@ -97,6 +97,10 @@ async def _scheduled_poll_loop(name: str, poll_fn, poll_seconds: int) -> None:
                 continue
             log.info("Scheduled [%s]: firing poll", name)
             await poll_fn()
+            # Record last successful poll for the /system routine-staleness view.
+            # cursors store (not runtime_config) so it doesn't spam the audit log.
+            from haven.db import cursor_store
+            cursor_store.set_cursor(name, "last_poll", datetime.now().isoformat(timespec="seconds"))
         except asyncio.CancelledError:
             log.info("Scheduled poller [%s] cancelled", name)
             raise

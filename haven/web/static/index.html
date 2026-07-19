@@ -1249,6 +1249,27 @@ function renderSystem() {
             </div></div>`).join('') : ''}
       </div>
     </div>
+    ${sys && sys.trust ? `
+    <div class="sec-title">Trust — write capabilities</div>
+    <div class="sys-card"><div class="sys-kv">
+      ${sys.trust.write_verbs.map(v => `
+        <span class="k">${esc(v.connection)}: ${esc(v.verb)}</span>
+        <span class="v">${v.tracked
+          ? (v.unused ? '<span style="color:var(--warn)">unused 30d — consider disabling</span>'
+                      : `${v.count_30d}× in 30d${v.last_used ? ' · last ' + esc(v.last_used.slice(0,10)) : ''}`)
+          : `<span style="color:var(--muted)">capability (${esc(v.risk)} risk)</span>`}</span>`).join('')}
+    </div></div>
+    <div class="sec-title">Trust — routines &amp; agents</div>
+    <div class="sys-grid">
+      <div class="sys-card"><div class="sys-hd"><span class="nm">Routines</span></div><div class="sys-kv">
+        ${sys.trust.routines.map(r => `<span class="k">${esc(r.name)}</span><span class="v ${r.last_poll ? '' : 'err'}">${r.last_poll ? esc(r.last_poll.replace('T',' ')) : 'no run recorded'}</span>`).join('')}
+      </div></div>
+      <div class="sys-card"><div class="sys-hd"><span class="nm">Agent feedback</span></div><div class="sys-kv">
+        ${sys.trust.agent_feedback.length
+          ? sys.trust.agent_feedback.map(a => `<span class="k">${esc(a.agent)}</span><span class="v">${a.approved_clean}✓ · ${a.edited}✎ · ${a.rejected}✕</span>`).join('')
+          : '<span class="k">—</span><span class="v">no drafts approved yet</span>'}
+      </div></div>
+    </div>` : ''}
   </div>`;
   $('#list-pane').querySelectorAll('[data-poll]').forEach(b => b.addEventListener('click', async () => {
     const s = b.dataset.poll;

@@ -9,6 +9,10 @@ DATA_DIR = ROOT / "data"
 SECRETS_DIR = DATA_DIR / "secrets"
 AGENTS_CONFIG_DIR = ROOT / "agents"
 
+# SecondBrain wiki (roster source of truth + knowledge base). Lives alongside
+# the Projects/ tree: Documents/Claude/SecondBrain. Overridable for other hosts.
+SECONDBRAIN_DIR = Path(os.getenv("HAVEN_SECONDBRAIN_DIR", str(ROOT.parent.parent / "SecondBrain")))
+
 load_dotenv(ROOT / ".env")
 
 # Server

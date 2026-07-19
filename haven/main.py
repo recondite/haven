@@ -30,6 +30,7 @@ from haven.routers import (
     dispatch,
     freshservice,
     gmail,
+    identity,
     items,
     otter,
     slack,
@@ -284,6 +285,7 @@ app.include_router(contacts.router)
 app.include_router(items.router)
 app.include_router(spine.router)
 app.include_router(dispatch.router)
+app.include_router(identity.router)
 
 
 # ─── Static UI (mounted last so /api/* and /oauth/* take precedence) ───

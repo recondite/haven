@@ -107,6 +107,34 @@ _MIGRATIONS: list[str] = [
     """
     ALTER TABLE draft ADD COLUMN original_payload TEXT;
     """,
+    # v4 — identity: roster from SecondBrain (person) + system-id resolution
+    # (identity_map). Manual overrides win permanently; unresolved senders are
+    # derived by query, never silently guessed.
+    """
+    CREATE TABLE person (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        secondbrain_page TEXT UNIQUE,      -- people/<slug>.md
+        name             TEXT NOT NULL,
+        title            TEXT,
+        department       TEXT,
+        manager          TEXT,
+        work_email       TEXT,
+        is_report        INTEGER NOT NULL DEFAULT 0,  -- direct report of GT
+        updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX idx_person_email ON person(work_email) WHERE work_email IS NOT NULL;
+    CREATE TABLE identity_map (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        person_id          INTEGER NOT NULL REFERENCES person(id),
+        system             TEXT NOT NULL,   -- slack | jira | freshservice | gmail | otter
+        system_id          TEXT NOT NULL,
+        confidence         REAL NOT NULL DEFAULT 1.0,
+        provenance         TEXT,            -- email_match | manual | ...
+        is_manual_override INTEGER NOT NULL DEFAULT 0,
+        resolved_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(system, system_id)
+    );
+    """,
 ]
 
 _KIND_BY_SOURCE = {
@@ -338,6 +366,79 @@ class Spine:
         with self._lock:
             row = self._conn.execute("SELECT * FROM action WHERE draft_id=?", (draft_id,)).fetchone()
             return dict(row) if row else None
+
+    # ─── Identity ────────────────────────────────────────
+    def upsert_person(self, page: str, name: str, title: str | None, department: str | None,
+                      manager: str | None, work_email: str | None, is_report: bool = False) -> int:
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO person (secondbrain_page, name, title, department, manager, work_email, is_report)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(secondbrain_page) DO UPDATE SET
+                     name=excluded.name, title=excluded.title, department=excluded.department,
+                     manager=excluded.manager, work_email=excluded.work_email,
+                     is_report=excluded.is_report, updated_at=datetime('now')""",
+                (page, name, title, department, manager, work_email, 1 if is_report else 0),
+            )
+            self._conn.commit()
+            row = self._conn.execute("SELECT id FROM person WHERE secondbrain_page=?", (page,)).fetchone()
+            return int(row["id"])
+
+    def list_people(self, reports_only: bool = False) -> list[dict]:
+        with self._lock:
+            q = "SELECT * FROM person"
+            if reports_only:
+                q += " WHERE is_report=1"
+            q += " ORDER BY name"
+            return [dict(r) for r in self._conn.execute(q).fetchall()]
+
+    def person_by_email(self, email: str) -> dict | None:
+        if not email:
+            return None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM person WHERE lower(work_email)=lower(?)", (email,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def map_identity(self, person_id: int, system: str, system_id: str,
+                     confidence: float = 1.0, provenance: str = "email_match",
+                     manual: bool = False) -> None:
+        """Record a system id for a person. A manual override is never clobbered
+        by an automated resolution."""
+        with self._lock:
+            existing = self._conn.execute(
+                "SELECT is_manual_override FROM identity_map WHERE system=? AND system_id=?",
+                (system, system_id),
+            ).fetchone()
+            if existing and existing["is_manual_override"] and not manual:
+                return  # manual wins permanently
+            self._conn.execute(
+                """INSERT INTO identity_map (person_id, system, system_id, confidence, provenance, is_manual_override)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(system, system_id) DO UPDATE SET
+                     person_id=excluded.person_id, confidence=excluded.confidence,
+                     provenance=excluded.provenance, is_manual_override=excluded.is_manual_override,
+                     resolved_at=datetime('now')""",
+                (person_id, system, system_id, confidence, provenance, 1 if manual else 0),
+            )
+            self._conn.commit()
+
+    def identities_for_person(self, person_id: int) -> list[dict]:
+        with self._lock:
+            return [dict(r) for r in self._conn.execute(
+                "SELECT system, system_id, confidence, provenance, is_manual_override "
+                "FROM identity_map WHERE person_id=? ORDER BY system", (person_id,)
+            ).fetchall()]
+
+    def identity_coverage(self) -> dict:
+        with self._lock:
+            people = self._conn.execute("SELECT COUNT(*) FROM person").fetchone()[0]
+            mapped = self._conn.execute(
+                "SELECT COUNT(DISTINCT person_id) FROM identity_map").fetchone()[0]
+            by_system = {r["system"]: r["n"] for r in self._conn.execute(
+                "SELECT system, COUNT(*) n FROM identity_map GROUP BY system").fetchall()}
+            return {"people": people, "people_with_any_id": mapped, "by_system": by_system}
 
 
 spine = Spine(config.DATA_DIR / "state" / "spine.sqlite")

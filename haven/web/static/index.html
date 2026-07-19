@@ -338,6 +338,7 @@ const state = {
   hideNoise: true, hideHandled: true,
   srcOff: new Set(),   // sources filtered OUT of the inbox (empty = show all)
   editingDraft: null,  // draft id currently being edited in the approvals pane
+  people: null, identityCoverage: null,  // People view (lazy-loaded)
   selKey: null,          // inbox selection: "source|msg_id"
   selDraft: null,        // approvals selection: draft id
   sse: { live: false, lastEvent: 0 },
@@ -533,7 +534,7 @@ function renderChrome() {
   const [t, s] = VIEWMETA[state.view];
   $('#view-title').textContent = t; $('#view-sub').textContent = s;
   $('#dryrun-banner').hidden = !(state.view === 'approvals' && state.approvals.dry_run);
-  $('#content').classList.toggle('single', state.view === 'system' || state.view === 'people');
+  $('#content').classList.toggle('single', state.view === 'system');
 
   // badges + counts
   const vis = visibleItems();
@@ -815,13 +816,65 @@ async function approvalAction(id, act) {
   } catch (e) { toast(act + ' failed: ' + e.message, true); }
 }
 
-/* ---------- PEOPLE (stub) ---------- */
+/* ---------- PEOPLE ---------- */
+async function loadPeople() {
+  try {
+    const [pp, cov] = await Promise.all([
+      api('/api/people'), api('/api/identity/coverage'),
+    ]);
+    state.people = pp.people || [];
+    state.identityCoverage = cov;
+  } catch (e) { state.people = []; state.identityCoverage = null; }
+}
 function renderPeople() {
-  $('#detail-pane').innerHTML = '';
-  $('#list-pane').innerHTML = `<div class="empty" style="padding-top:90px">
-    <div class="big">◔</div>
-    <div style="font-weight:650;color:var(--text-2);margin-bottom:6px">People rollup isn't here yet</div>
-    Ships with the JIRA source + person rollup (Phase 2).
+  if (state.people == null) { loadPeople().then(render); $('#list-pane').innerHTML = '<div class="empty" style="padding-top:90px">Loading roster…</div>'; return; }
+  const cov = state.identityCoverage;
+  const covLine = cov
+    ? `${cov.people_with_any_id}/${cov.people} mapped to a system id${cov.by_system && cov.by_system.slack ? ` · ${cov.by_system.slack} Slack` : ''} · ${cov.unresolved_senders} unresolved senders`
+    : 'coverage unknown';
+  if (!state.people.length) {
+    $('#list-pane').innerHTML = `<div class="empty" style="padding-top:80px"><div class="big">◔</div>
+      <div style="font-weight:650;color:var(--text-2);margin-bottom:6px">No roster loaded</div>
+      <button class="btn btn-primary" onclick="api('/api/identity/load-roster',{method:'POST'}).then(()=>{state.people=null;render()})">Load roster from SecondBrain</button></div>`;
+    return;
+  }
+  const reports = state.people.filter(p => p.is_report);
+  const others = state.people.filter(p => !p.is_report);
+  const rowsHtml = (arr) => arr.map(p =>
+    `<div class="row" data-person="${p.id}">
+      <span class="src-glyph" style="background:var(--accent-dim);color:var(--accent)">${esc((p.name||'?').split(' ').map(x=>x[0]).slice(0,2).join(''))}</span>
+      <span class="row-sender" style="max-width:190px">${esc(p.name)}</span>
+      <span class="row-subj">${esc(p.title || '')}</span>
+    </div>`).join('');
+  $('#list-pane').innerHTML =
+    `<div class="grp-hd">Coverage <span class="grp-ct">${esc(covLine)}</span></div>
+     <div class="grp-hd">GT's reports <span class="grp-ct">${reports.length}</span></div>${rowsHtml(reports)}
+     <div class="grp-hd">Other roster <span class="grp-ct">${others.length}</span></div>${rowsHtml(others)}`;
+  $('#list-pane').querySelectorAll('[data-person]').forEach(r =>
+    r.addEventListener('click', () => showRollup(Number(r.dataset.person))));
+  if (!$('#detail-pane').innerHTML) $('#detail-pane').innerHTML = '<div class="dp-placeholder">Select a person for their rollup.</div>';
+}
+async function showRollup(id) {
+  const dp = $('#detail-pane');
+  dp.innerHTML = '<div class="dp-placeholder">Loading rollup…</div>';
+  let r;
+  try { r = await api(`/api/people/${id}/rollup`); } catch (e) { dp.innerHTML = '<div class="dp-placeholder">Rollup failed: ' + esc(e.message) + '</div>'; return; }
+  const p = r.person;
+  const ids = (r.identities || []).map(i => `<span class="tag" style="background:var(--panel-2)">${esc(i.system)}:${esc(i.system_id)}${i.is_manual_override ? ' ✎' : ''}</span>`).join(' ') || '<span style="color:var(--faint)">no system ids resolved</span>';
+  const bucket = (name, arr) => `<div class="sec-title">${esc(name)} · ${arr.length}</div>` +
+    (arr.length ? arr.map(it => `<div class="evi"><div class="evi-l1"><span>${esc(it.subject || it.msg_id || '')}</span></div><div class="evi-q">${esc(it.tag||'')} · ${esc(it.urgency||'')}</div></div>`).join('')
+                : '<div style="font-size:11.5px;color:var(--faint)">none</div>');
+  dp.innerHTML = `<div class="dp">
+    <div class="dp-eyebrow"><span style="font-size:11.5px;color:var(--muted)">${esc(p.department || '')}${p.is_report ? ' · GT report' : ''}</span></div>
+    <h2 class="dp-subject">${esc(p.name)}</h2>
+    <div style="color:var(--text-2);font-size:12.5px;margin-bottom:4px">${esc(p.title || '')}</div>
+    <div style="color:var(--muted);font-size:11.5px;margin-bottom:12px">${esc(p.work_email || 'no email on file')} · mgr ${esc(p.manager || '—')}</div>
+    <div class="sec-title">System ids</div><div style="margin-bottom:6px">${ids}</div>
+    ${bucket('Open Freshservice', r.open_items.freshservice)}
+    ${bucket('Open Otter ARs', r.open_items.otter)}
+    ${bucket('Open email', r.open_items.gmail)}
+    ${bucket('Open Slack', r.open_items.slack)}
+    <div style="margin-top:14px;font-size:11px;color:var(--faint)">Pending: ${(r.pending||[]).map(esc).join(' · ')}</div>
   </div>`;
 }
 

@@ -39,7 +39,7 @@ async def run(force: bool = False) -> dict:
 
     # Queries come from agents/gmail.yaml (editable without code changes).
     cfg = filters.load_config()
-    queries = cfg.get("queries") or ["is:important is:unread in:inbox"]
+    queries = cfg.get("queries") or ["is:important is:unread in:inbox -label:ignore"]
     fetcher = GmailFetcher(auth=gmail_auth, queries=queries)
 
     try:
@@ -89,6 +89,7 @@ async def run(force: bool = False) -> dict:
     survivor_ids: list[str] = []
     survivor_flags: dict[str, dict] = {}
     noise_ids: set[str] = set()  # msg_ids to add the "noise" Gmail label to
+    travel_ids: set[str] = set()  # msg_ids to add the "travel" Gmail label to
     for mid, meta in metadata_by_id.items():
         decision, reason, flags = filters.apply_filter(meta)
         if decision != filters.Decision.REJECT and filters.auto_approve_from_history(meta):
@@ -172,6 +173,21 @@ async def run(force: bool = False) -> dict:
             if payload.get("urgency") == "low":
                 payload["urgency"] = "med"
 
+        # Priority approvals (e.g. Coupa) are pinned to tag="approval" and
+        # urgency="urgent" regardless of LLM judgment — these block spend/workflow
+        # and must never be buried.
+        if flags.get("is_priority_approval"):
+            payload["tag"] = "approval"
+            payload["urgency"] = "urgent"
+            payload["action_required"] = True
+
+        # Travel notifications (flagged by the deterministic filter) are pinned
+        # to tag="travel" regardless of what the LLM guessed — they're never
+        # noise — and get the "travel" Gmail label below.
+        if flags.get("is_travel"):
+            payload["tag"] = "travel"
+            travel_ids.add(mid)
+
         # LLM-tagged noise after the metadata filter passed — still apply the
         # Gmail "noise" label so it's filterable in Gmail itself.
         if payload.get("tag") == "noise":
@@ -202,6 +218,16 @@ async def run(force: bool = False) -> dict:
         except Exception as e:
             log.warning("Failed to apply noise label: %s", e)
 
+    # Apply the "travel" label to airline/hotel/car-rental confirmations so they
+    # are filterable in Gmail (search: "label:travel"). Best-effort.
+    labeled_travel = 0
+    if travel_ids:
+        try:
+            labeled_travel = await fetcher.label_messages(list(travel_ids), "travel")
+            log.info("Applied 'travel' label to %d items", labeled_travel)
+        except Exception as e:
+            log.warning("Failed to apply travel label: %s", e)
+
     summary = {
         "queried_total": len(all_ids),
         "new_count": new_count,
@@ -211,6 +237,7 @@ async def run(force: bool = False) -> dict:
         "scored_by_llm": len(items_to_score),
         "labeled_haven": labeled_count,
         "labeled_noise": labeled_noise,
+        "labeled_travel": labeled_travel,
         "errors": errors,
         "items": items,
         "total_seen_all_time": cursor_store.seen_count("gmail"),

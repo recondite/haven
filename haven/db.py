@@ -208,6 +208,31 @@ class CursorStore:
             )
             return {row[0]: json.loads(row[1]) for row in cur.fetchall()}
 
+    def get_cached_by_thread(self, source: str, thread_id: str) -> dict[str, dict]:
+        """Return {item_id: payload} for every cached item in a Gmail thread.
+
+        Used by thread-level mark-done so one click clears the whole Gmail
+        conversation, regardless of which urgency bucket each message landed in.
+        Scans the source's cached payloads (a few hundred rows) and matches on the
+        payload's thread_id — cheap at our scale, no extra index needed.
+        """
+        if not thread_id:
+            return {}
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT item_id, payload_json FROM cached_items WHERE source = ?",
+                (source,),
+            )
+            out: dict[str, dict] = {}
+            for item_id, payload_json in cur.fetchall():
+                try:
+                    payload = json.loads(payload_json)
+                except Exception:
+                    continue
+                if payload.get("thread_id") == thread_id:
+                    out[item_id] = payload
+            return out
+
     def put_cached(self, source: str, item_id: str, payload: dict) -> None:
         with self._lock:
             self._conn.execute(

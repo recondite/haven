@@ -517,6 +517,7 @@
   .badge.tag-action { background: rgba(94, 106, 210, 0.18); color: var(--accent); }
   .badge.tag-fyi { background: var(--panel-2); color: var(--muted); }
   .badge.tag-noise { background: var(--panel-2); color: var(--muted); opacity: 0.55; }
+  .badge.tag-travel { background: rgba(34, 178, 178, 0.18); color: #2bc4c4; font-weight: 600; }
   .badge.reply-needed { background: rgba(248, 81, 73, 0.22); color: var(--err); font-weight: 600; }
   .badge.action-req {
     background: var(--err);
@@ -586,7 +587,7 @@
     gap: 6px;
     padding-top: 6px;
   }
-  .archive-btn, .wiki-btn, .block-btn, .linear-btn, .dismiss-slack-btn {
+  .archive-btn, .wiki-btn, .block-btn, .ignore-btn, .linear-btn, .dismiss-slack-btn {
     background: transparent;
     color: var(--muted);
     border: 1px solid var(--border);
@@ -598,7 +599,7 @@
     transition: all 0.1s;
     line-height: 1.2;
   }
-  .archive-btn:hover, .wiki-btn:hover, .linear-btn:hover, .dismiss-slack-btn:hover {
+  .archive-btn:hover, .wiki-btn:hover, .ignore-btn:hover, .linear-btn:hover, .dismiss-slack-btn:hover {
     background: var(--panel-2);
     color: var(--text);
     border-color: var(--muted);
@@ -624,7 +625,42 @@
     background: rgba(255, 184, 0, 0.08);
     cursor: progress;
   }
-  .wiki-btn:disabled, .block-btn:disabled, .archive-btn:disabled, .linear-btn:disabled, .dismiss-slack-btn:disabled {
+  /* Close-the-Linear-issue button — sits next to the linked → IDENT chip. */
+  .linear-close-btn {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.1s;
+    line-height: 1.2;
+    margin-left: 4px;
+  }
+  .linear-close-btn:hover {
+    background: rgba(63, 185, 80, 0.12);
+    color: var(--ok, #3fb950);
+    border-color: rgba(63, 185, 80, 0.45);
+  }
+  .linear-close-btn:disabled { opacity: 0.7; cursor: progress; }
+  .linear-close-btn.pending {
+    border-color: rgba(255, 184, 0, 0.5);
+    color: #ffb800;
+    background: rgba(255, 184, 0, 0.08);
+    cursor: progress;
+  }
+  .linear-closed {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ok, #3fb950);
+    padding: 6px 8px;
+    margin-left: 2px;
+    opacity: 0.9;
+  }
+  .wiki-btn:disabled, .block-btn:disabled, .ignore-btn:disabled, .archive-btn:disabled, .linear-btn:disabled, .dismiss-slack-btn:disabled {
     opacity: 0.7;
     cursor: progress;
   }
@@ -636,9 +672,15 @@
   .item.action-required .archive-btn,
   .item.action-required .wiki-btn,
   .item.action-required .block-btn,
+  .item.action-required .ignore-btn,
   .item.action-required .linear-btn,
   .item.action-required .dismiss-slack-btn {
     padding: 7px 16px;
+  }
+  .ignore-btn:hover {
+    background: rgba(255, 184, 0, 0.10);
+    color: #ffb800;
+    border-color: rgba(255, 184, 0, 0.4);
   }
 
   /* === Per-source counter strip (header) === */
@@ -1230,6 +1272,25 @@
     .item .actions { flex-direction: row; }
     .archive-btn, .wiki-btn, .block-btn { flex: 1; min-width: 80px; padding: 8px 10px; text-align: center; }
   }
+  /* ── Thread grouping: a multi-message Gmail thread collapses to one card ── */
+  .thread-card .thread-toggle {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 0 6px 0 0; font-size: 0.95em; line-height: 1;
+  }
+  .thread-card .thread-chevron { display: inline-block; transition: transform 0.12s ease; }
+  .thread-card.expanded .row1 .thread-chevron { transform: rotate(0deg); }
+  .thread-card:not(.expanded) .row1 .thread-chevron { transform: rotate(-90deg); }
+  .thread-pill {
+    font-size: 0.72rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+    background: rgba(45,162,187,0.16); color: var(--accent, #2da2bb);
+    border: 1px solid rgba(45,162,187,0.35);
+  }
+  .thread-children {
+    margin: 8px 0 2px 14px; padding-left: 12px;
+    border-left: 2px solid var(--border, #2a2f3a);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .thread-children .item { background: rgba(255,255,255,0.02); }
 </style>
 </head>
 <body>
@@ -1358,6 +1419,7 @@
 
   // Bucket collapse state — persists across re-renders.
   const bucketCollapsed = { ar: false, approval: false, reply: false, important: false, fyi: false, noise: false };
+  const threadExpanded = new Set();  // thread_ids currently expanded in the bucket view
 
   function showError(text) {
     errorBlock.textContent = text;
@@ -1557,6 +1619,34 @@
       e.stopPropagation(); // don't bubble to subject-link / bucket-head handlers
       return;
     }
+    const threadToggleBtn = e.target.closest(".thread-toggle");
+    if (threadToggleBtn) {
+      e.preventDefault(); e.stopPropagation();
+      const tid = threadToggleBtn.dataset.threadId;
+      if (tid) { if (threadExpanded.has(tid)) threadExpanded.delete(tid); else threadExpanded.add(tid); renderItems(); }
+      return;
+    }
+    const threadDoneBtn = e.target.closest(".thread-done-btn");
+    if (threadDoneBtn) {
+      e.preventDefault();
+      markThreadDone(threadDoneBtn.dataset.threadId, threadDoneBtn);
+      return;
+    }
+    const threadSnoozeBtn = e.target.closest(".thread-snooze-btn");
+    if (threadSnoozeBtn) {
+      e.preventDefault();
+      snoozeThread(threadSnoozeBtn.dataset.threadId, threadSnoozeBtn.dataset.preset || "1h", threadSnoozeBtn);
+      return;
+    }
+    const threadSubjectLink = e.target.closest(".thread-card a.subject[data-msg-id]");
+    if (threadSubjectLink) {
+      // Clicking a thread's subject opens it in Gmail. Plain click also clears the
+      // whole thread (open + archive, like single items); Shift+click = review only.
+      const card = threadSubjectLink.closest(".thread-card");
+      const tid = card && card.dataset.threadId;
+      if (!e.shiftKey && tid) markThreadDone(tid);
+      return; // let the browser open the link
+    }
     const subjectLink = e.target.closest("a.subject[data-msg-id]");
     if (subjectLink) {
       const msgId = subjectLink.dataset.msgId;
@@ -1607,6 +1697,13 @@
         : `Block sender ${sender}? They will never appear in Haven again. (Shift+click to also block the domain.)`;
       if (!confirm(promptText)) return;
       if (msgId) blockSender(msgId, blockBtn, domainToo);
+      return;
+    }
+    const ignoreBtn = e.target.closest(".ignore-btn");
+    if (ignoreBtn) {
+      e.preventDefault();
+      const msgId = ignoreBtn.dataset.msgId;
+      if (msgId) ignoreMessage(msgId, ignoreBtn);
       return;
     }
     const linearBtn = e.target.closest("button.linear-btn");
@@ -1763,6 +1860,58 @@
     }
   }
 
+  async function markThreadDone(threadId, btn) {
+    if (!threadId) return;
+    const orig = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "marking…"; }
+    try {
+      const r = await fetch(`/api/items/gmail/thread/${encodeURIComponent(threadId)}/mark-done`, { method: "POST" });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Thread mark done failed:", err);
+        showError(`POST thread mark-done → ${r.status}\n\n${err}`);
+        if (btn) { btn.disabled = false; btn.textContent = orig; }
+        return;
+      }
+      const j = await r.json();
+      const ids = new Set(j.handled || []);
+      for (const it of recent) { if (ids.has(it.msg_id)) it.handled_at = j.handled_at; }
+      renderItems();
+      makeToast("success",
+        `Thread marked done · ${j.count} message${j.count === 1 ? "" : "s"} archived`,
+        { actionLabel: "Undo", onAction: (el) => { el.remove(); unmarkThread(j.handled); }, autoDismissMs: 6000 }
+      );
+    } catch (e) {
+      console.error("Thread mark done error:", e);
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+  }
+
+  async function unmarkThread(ids) {
+    for (const id of (ids || [])) { await unmarkItemDone("gmail", id); }
+  }
+
+  async function snoozeThread(threadId, preset, btn) {
+    if (!threadId) return;
+    const ids = recent.filter(i => sourceOf(i) === "gmail" && i.thread_id === threadId && !isHandled(i)).map(i => i.msg_id);
+    if (ids.length === 0) return;
+    const orig = btn ? btn.textContent : "";
+    if (btn) { btn.disabled = true; btn.textContent = "snoozing…"; }
+    for (const id of ids) {
+      try {
+        const r = await fetch(`/api/items/gmail/${encodeURIComponent(id)}/snooze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preset }),
+        });
+        if (r.ok) { const j = await r.json(); const it = recent.find(x => x.msg_id === id); if (it) it.snooze_until = j.snooze_until; }
+      } catch (e) { console.error("Thread snooze error:", e); }
+    }
+    renderItems();
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+    makeToast("success", `Snoozed ${ids.length} message${ids.length === 1 ? "" : "s"} in thread for 1 hour`, { autoDismissMs: 5000 });
+  }
+
   async function unmarkItemDone(source, msgId, btn) {
     if (!source || !msgId) return;
     if (btn) { btn.disabled = true; btn.textContent = "…"; }
@@ -1868,6 +2017,33 @@
     }
   }
 
+  async function ignoreMessage(msgId, btn) {
+    btn.disabled = true;
+    btn.textContent = "ignoring…";
+    try {
+      const r = await fetch("/api/agents/gmail/ignore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ msg_id: msgId }),
+      });
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Ignore failed:", err);
+        showError(`POST /api/agents/gmail/ignore → ${r.status}\n\n${err}`);
+        btn.textContent = "Ignore";
+        btn.disabled = false;
+        return;
+      }
+      removeFromRecent(msgId);
+      gmailMeta.textContent = "ignored (labeled 'ignore' in Gmail)";
+    } catch (e) {
+      console.error("Ignore error:", e);
+      showError(`Ignore error: ${e.message}`);
+      btn.textContent = "Ignore";
+      btn.disabled = false;
+    }
+  }
+
   // ─── Linear AR capture (Phase 1.6) ─────────────────────
   // Click "→ Linear" → toast with 30s countdown + Undo. Server is NOT called
   // until the timer elapses, so undo is free and never touches Linear.
@@ -1951,6 +2127,70 @@
 
     pendingLinear.set(msgId, { timeoutId, intervalId, toastEl: toast });
   }
+
+  // Linked-issue chrome: the "→ IDENT" open-in-Linear chip plus either a
+  // "Close issue" button (closes the issue in Linear via a Done-state transition)
+  // or a "✓ closed" marker once it's been closed.
+  function linearLinkedHtml(item, src) {
+    const ident = escapeHtml(item.linear_identifier || "Linear");
+    const url = escapeHtml(item.linear_url || "#");
+    const link = `<a class="linear-btn linked" href="${url}" target="_blank" rel="noopener" title="Open in Linear">→ ${ident}</a>`;
+    const close = item.linear_closed_at
+      ? `<span class="linear-closed" title="Closed in Linear${item.linear_state ? " · " + escapeHtml(item.linear_state) : ""}">✓ closed</span>`
+      : `<button class="linear-close-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Close this Linear issue — moves it to a Done state. Reversible in Linear.">Close issue</button>`;
+    return link + close;
+  }
+
+  async function closeLinearIssue(msgId, src, btn) {
+    const item = recent.find(i => i.msg_id === msgId);
+    if (!item || !item.linear_id) return;
+    if (item.linear_closed_at) return; // already closed
+    if (!confirm(`Close Linear issue ${item.linear_identifier || ""}? It moves to a Done state (reversible in Linear).`)) return;
+    if (!src) src = sourceOf(item);
+    if (btn) { btn.disabled = true; btn.classList.add("pending"); btn.textContent = "Closing…"; }
+    const sending = makeToast("pending", "Closing Linear issue…");
+    try {
+      const r = await fetch(`/api/items/${src}/${encodeURIComponent(msgId)}/linear/close`, { method: "POST" });
+      sending.remove();
+      if (!r.ok) {
+        const err = await r.text();
+        console.error("Linear close failed:", err);
+        makeToast("err",
+          `<strong>Linear close failed</strong><div class="sub">${escapeHtml(err.slice(0, 240))}</div>`,
+          { autoDismissMs: 8000 }
+        );
+        if (btn) { btn.disabled = false; btn.classList.remove("pending"); btn.textContent = "Close issue"; }
+        return;
+      }
+      const j = await r.json();
+      const it = recent.find(i => i.msg_id === msgId);
+      if (it) {
+        it.linear_closed_at = j.closed_at || (Date.now() / 1000);
+        it.linear_state = j.state_name;
+        renderItems();
+      }
+      const ident = j.linear_identifier || (it && it.linear_identifier) || "issue";
+      makeToast("success",
+        `Closed <strong>${escapeHtml(ident)}</strong> in Linear${j.state_name ? ` (${escapeHtml(j.state_name)})` : ""}.`,
+        { autoDismissMs: 6000 }
+      );
+    } catch (e) {
+      sending.remove();
+      console.error("Linear close error:", e);
+      makeToast("err", `<strong>Linear close error</strong><div class="sub">${escapeHtml(e.message)}</div>`, { autoDismissMs: 8000 });
+      if (btn) { btn.disabled = false; btn.classList.remove("pending"); btn.textContent = "Close issue"; }
+    }
+  }
+
+  // Global delegation for the Close-issue button — works across the bucket list,
+  // hero strip, and contacts panel without touching their individual listeners.
+  document.addEventListener("click", (e) => {
+    const closeBtn = e.target.closest("button.linear-close-btn");
+    if (closeBtn) {
+      e.preventDefault();
+      closeLinearIssue(closeBtn.dataset.msgId, closeBtn.dataset.source, closeBtn);
+    }
+  });
 
   async function sendLinearCreate(msgId) {
     const item = recent.find(i => i.msg_id === msgId);
@@ -2186,8 +2426,10 @@
   function renderCounts(buckets) {
     // Urgent row sits above the bucket list — toggles a global filter rather than jumping.
     // Count uses `recent` (all items, all sources) so the badge reflects total urgent items
-    // regardless of the source filter or the current toggle state.
-    const urgentN = recent.filter(isUrgent).length;
+    // regardless of the source filter or the current toggle state. Handled items
+    // (Mark-done OR captured to Linear) are excluded so the count drops as Garth
+    // clears them out — matching the bucket counts below, which also hide handled.
+    const urgentN = recent.filter(i => isUrgent(i) && !isHandled(i)).length;
     const urgentCls = ["urgent-filter", urgentN === 0 ? "zero" : "", urgentOnly ? "active" : ""].filter(Boolean).join(" ");
     const urgentRow = `<li class="${urgentCls}" data-filter="urgent" title="${urgentOnly ? "Click to clear filter" : "Show only items tagged URGENT"}">
         <span class="label">Urgent</span><span class="n">${urgentN}</span>
@@ -2328,13 +2570,94 @@
           ${slackOnly ? `<button class="dismiss-slack-btn" data-msg-id="${escapeHtml(item.msg_id)}" title="Dismiss this Slack message from Haven. Slack itself is unchanged; the message will return on next poll only if still unread.">Dismiss</button>` : ""}
           ${gmailOnly ? `<button class="wiki-btn ${item.wiki_ingested ? 'in-wiki' : ''}" data-msg-id="${escapeHtml(item.msg_id)}" title="Send this email to the curated wiki — the LLM creates/updates the relevant people, company, event, and topic pages.">${item.wiki_ingested ? '✓ in wiki' : '+ Wiki'}</button>` : ""}
           ${item.linear_id
-            ? `<a class="linear-btn linked" href="${escapeHtml(item.linear_url || '#')}" target="_blank" rel="noopener" title="Open in Linear">→ ${escapeHtml(item.linear_identifier || 'Linear')}</a>`
+            ? linearLinkedHtml(item, src)
             : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR in the CIO ARs project. 10-second undo before it's sent.">→ Linear</button>`
           }
           ${item.handled_at ? `<button class="unmark-done-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Bring this item back to the active view">Unmark done</button>` : ""}
           ${(parseFloat(item.snooze_until || 0) > Date.now() / 1000) ? `<button class="unsnooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Cancel snooze — surface back immediately">Unsnooze</button>` : ""}
           ${gmailOnly ? `<button class="block-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-sender="${escapeHtml(item.sender_email || '')}" title="Add this sender to the dynamic block list — they'll never appear in Haven again. Shift+click to also block the entire domain.">Block</button>` : ""}
+          ${gmailOnly ? `<button class="ignore-btn" data-msg-id="${escapeHtml(item.msg_id)}" title="Tag this email with the Gmail 'ignore' label and drop it from Haven. Haven never imports anything labeled 'ignore'. Reversible by removing the label in Gmail.">Ignore</button>` : ""}
         </div>
+      </div>
+    `;
+  }
+
+  function groupByThread(items) {
+    // Group Gmail messages sharing a thread_id into one entry, preserving the
+    // incoming (date-desc) order by first appearance. Non-Gmail items, and Gmail
+    // items without a thread_id, are their own singleton group.
+    const map = new Map();
+    const order = [];
+    for (const it of items) {
+      const key = (sourceOf(it) === "gmail" && it.thread_id) ? ("t:" + it.thread_id) : ("m:" + it.msg_id);
+      if (!map.has(key)) { map.set(key, []); order.push(key); }
+      map.get(key).push(it);
+    }
+    return order.map(k => map.get(k));
+  }
+
+  function collapseThreads(items) {
+    // One display unit per Gmail thread. Multi-message threads collapse into a unit
+    // carrying the whole group (_thread_group); the unit's own fields are the MOST
+    // URGENT member's, so hero/bucket placement reflects the strongest signal.
+    return groupByThread(items).map(group => {
+      if (group.length <= 1) return group[0];
+      const lead = [...group].sort(heroSort)[0];
+      return Object.assign({}, lead, { _thread_group: group });
+    });
+  }
+
+  function threadBadgesHtml(group) {
+    const any = (f) => group.some(f);
+    const parts = [`<span class="badge src-gmail" title="Gmail">Gmail</span>`];
+    if (any(i => i.action_required)) parts.push(`<span class="badge action-req" title="A message in this thread needs your action">ACTION</span>`);
+    if (any(i => (i.tag || "").toLowerCase() === "approval")) parts.push(`<span class="badge tag-approval" title="approval somewhere in thread">approval</span>`);
+    if (any(i => i.reply_needed)) parts.push(`<span class="badge reply-needed" title="A message in this thread needs a reply">reply needed</span>`);
+    if (any(i => (i.urgency || "").toLowerCase() === "urgent")) parts.push(`<span class="badge urg-urgent">URGENT</span>`);
+    if (any(i => i.handled_at)) parts.push(`<span class="badge handled" title="some messages already marked done">✓ some done</span>`);
+    return parts.join("");
+  }
+
+  function renderThreadCard(group, kind) {
+    // group is date-desc; the newest message represents the collapsed thread.
+    const ordered = [...group].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+    const latest = ordered[0];
+    const threadId = latest.thread_id;
+    const count = group.length;
+    const expanded = threadExpanded.has(threadId);
+    const subj = latest.subject || "(no subject)";
+    const itemClasses = [
+      "item", "thread-card",
+      expanded ? "expanded" : "",
+      kind === "ar" ? "action-required" : "",
+      kind === "approval" ? "approval-emphasis" : "",
+      kind === "reply" ? "reply-emphasis" : "",
+    ].filter(Boolean).join(" ");
+    const summaryLine = latest.summary
+      ? `<div class="summary" title="latest message in thread">${escapeHtml(latest.summary)}</div>`
+      : "";
+    const children = expanded
+      ? `<div class="thread-children">${ordered.map(it => renderItem(it, kind)).join("")}</div>`
+      : "";
+    return `
+      <div class="${itemClasses}" data-thread-id="${escapeHtml(threadId)}">
+        <div class="row1">
+          <button class="thread-toggle" data-thread-id="${escapeHtml(threadId)}" title="${expanded ? "Collapse" : "Expand"} this thread (${count} messages)"><span class="thread-chevron">▾</span></button>
+          <a class="subject" href="${escapeHtml(latest.deeplink)}" target="_blank" rel="noopener" data-msg-id="${escapeHtml(latest.msg_id)}" data-source="gmail" title="${escapeHtml(subj)}\n\nClick: open in Gmail + mark whole thread done\nShift+click: open without clearing">${escapeHtml(subj)}</a>
+          <span class="thread-pill" title="${count} messages in this Gmail thread">↩ ${count} in thread</span>
+          <span class="date" title="${escapeHtml(fmtDate(latest.date))}">${escapeHtml(fmtRelative(latest.date))}</span>
+        </div>
+        <div class="row2">
+          <span class="from">${fmtFrom(latest)}</span>
+          <span class="badges">${threadBadgesHtml(group)}</span>
+        </div>
+        ${summaryLine}
+        <div class="actions">
+          <button class="thread-done-btn" data-thread-id="${escapeHtml(threadId)}" title="Archive and mark done every message in this Gmail thread">Mark thread done (${count})</button>
+          <button class="thread-snooze-btn" data-thread-id="${escapeHtml(threadId)}" data-preset="1h" title="Snooze every message in this thread for 1 hour">Snooze 1h</button>
+          <button class="thread-toggle" data-thread-id="${escapeHtml(threadId)}">${expanded ? "Collapse" : ("Expand " + count)}</button>
+        </div>
+        ${children}
       </div>
     `;
   }
@@ -2345,7 +2668,7 @@
     const cls = ["bucket", empty ? "is-empty" : "", collapsed ? "collapsed" : ""].filter(Boolean).join(" ");
     const body = empty
       ? `<div class="section-empty-line">no ${title.toLowerCase()}</div>`
-      : items.map(it => renderItem(it, key)).join("");
+      : items.map(it => it._thread_group ? renderThreadCard(it._thread_group, key) : renderItem(it, key)).join("");
     return `
       <section class="${cls}" id="bucket-${key}" data-kind="${key}">
         <header class="bucket-head" data-toggle="${key}" title="Click to ${collapsed ? 'expand' : 'collapse'}">
@@ -2549,7 +2872,7 @@
     }
 
     const linearAction = item.linear_id
-      ? `<a class="linear-btn linked" href="${escapeHtml(item.linear_url || '#')}" target="_blank" rel="noopener" title="Open in Linear">→ ${escapeHtml(item.linear_identifier || 'Linear')}</a>`
+      ? linearLinkedHtml(item, src)
       : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR. 10-second undo before it's sent.">→ Linear</button>`;
 
     // Wiki ingest is gmail-only — re-fetches the body and runs an LLM pass that
@@ -2576,6 +2899,7 @@
           <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="tomorrow" title="Hide until 7am tomorrow">Snooze ↻</button>
           ${wikiAction}
           ${linearAction}
+          ${(src === "gmail") ? `<button class="ignore-btn" data-msg-id="${escapeHtml(item.msg_id)}" title="Tag this email with the Gmail 'ignore' label and drop it from Haven. Haven never imports anything labeled 'ignore'. Reversible by removing the label in Gmail.">Ignore</button>` : ""}
         </div>
       </div>
     `;
@@ -2629,14 +2953,18 @@
     const buckets = { ar: [], approval: [], reply: [], important: [], fyi: [], noise: [] };
     const allVisible = visibleItems();
     // Hide handled items (toggle: #hide-handled, default checked).
-    const items = (hideHandledEl && hideHandledEl.checked)
+    const items0 = (hideHandledEl && hideHandledEl.checked)
       ? allVisible.filter(i => !isHandled(i))
       : allVisible;
+    // Collapse multi-message Gmail threads into one display unit BEFORE the hero/
+    // bucket split, so a whole conversation is a single card placed by its most
+    // urgent message and cleared in one click.
+    const items = collapseThreads(items0);
 
     // Pick hero items + dedup from buckets. Apply the date-window filter
     // first so older items don't crowd out today's signal, but always count
     // the unfiltered total so we can show "+N hidden by date filter".
-    const heroEligibleAll = items.filter(isHeroEligible);
+    const heroEligibleAll = items.filter(i => !i._thread_group && isHeroEligible(i));
     const heroEligible = heroEligibleAll.filter(withinHeroWindow).sort(heroSort);
     const heroItems = heroEligible.slice(0, HERO_LIMIT);
     const heroIds = new Set(heroItems.map(i => i.msg_id));
@@ -2982,7 +3310,7 @@
     const src = sourceOf(item);
     const handledBadge = item.handled_at ? `<span class="badge handled">✓ done</span>` : "";
     const linearBadge = item.linear_id
-      ? `<a href="${escapeHtml(item.linear_url || '#')}" target="_blank" rel="noopener" style="color:var(--accent);">→ ${escapeHtml(item.linear_identifier || 'Linear')}</a>`
+      ? linearLinkedHtml(item, src)
       : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR. 10-second undo before commit.">→ Linear</button>`;
     const markDone = !item.handled_at && !item.linear_id
       ? `<button class="mark-done-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Mark this handled — drops from view.">Mark done</button>`
@@ -3201,6 +3529,10 @@
     const item = recent.find(i => i.msg_id === msgId);
     if (item) { delete item.snooze_until; renderItems(); }
   }
+  function applyLinearClosed(msgId, closedAt, stateName) {
+    const item = recent.find(i => i.msg_id === msgId);
+    if (item) { item.linear_closed_at = closedAt; item.linear_state = stateName; renderItems(); }
+  }
   for (const src of ["gmail", "slack", "freshservice", "otter"]) {
     es.addEventListener(`${src}_handled`, (e) => {
       const d = JSON.parse(e.data);
@@ -3217,6 +3549,10 @@
     es.addEventListener(`${src}_unsnoozed`, (e) => {
       const d = JSON.parse(e.data);
       applyUnsnoozed(d.msg_id);
+    });
+    es.addEventListener(`${src}_linear_closed`, (e) => {
+      const d = JSON.parse(e.data);
+      applyLinearClosed(d.msg_id, d.closed_at, d.state_name);
     });
   }
 

@@ -24,7 +24,7 @@ DEFAULT_SCORE: dict[str, Any] = {
     "action_required": False,
 }
 
-VALID_TAGS = {"approval", "action", "fyi", "noise"}
+VALID_TAGS = {"approval", "action", "fyi", "noise", "travel"}
 VALID_URGENCY = {"low", "med", "high", "urgent"}
 
 
@@ -54,7 +54,7 @@ BODY:
 
 Output ONLY a JSON object (no other text, no markdown fences):
 {{
-  "tag": "approval" | "action" | "fyi" | "noise",
+  "tag": "approval" | "action" | "fyi" | "noise" | "travel",
   "urgency": "low" | "med" | "high" | "urgent",
   "action_required": true | false,
   "reply_needed": true | false,
@@ -95,9 +95,21 @@ REJECT as tag = noise (reply_needed=false, urgency=low):
 - Anything from a no-reply / notifications / alerts / billing address with no human ask
 - Anything from outside Ayar that has no Ayar people on cc, no working history, no project relevance — even if it looks legitimate
 
+TRAVEL (tag = travel):
+- Airline reservations / e-tickets / boarding passes / flight change or delay notices,
+  hotel booking confirmations, car-rental confirmations, full trip itineraries.
+- Use tag = travel even when the sender is a noreply/notifications address — these
+  are NOT noise; Garth wants them surfaced and labeled.
+- urgency: low by default; med if travel is within ~48h or the email is a
+  schedule change / cancellation / check-in reminder for an imminent trip.
+- reply_needed=false and action_required=false unless the email explicitly asks
+  Garth to do something (e.g. confirm a change, complete check-in by a deadline).
+- A human asking Garth to *book* or *approve* travel is action/approval, not travel.
+
 GOOGLE WORKSPACE / DOCUSIGN / SERVICE NOTIFICATIONS — body content matters:
 - "<Person> shared a document with you" / "You've been added to a shared drive" → if the sharer is at ayarlabs.com or a known approved external contact, tag = action (Garth needs to use the doc). Otherwise depends on context.
 - DocuSign "<Person> sent you a document to sign" → if from Ayar or known external partner, tag = approval, urgency = high (signature blocks workflow).
+- Coupa / procurement approval requests ("Action Required", "requires your approval", requisition/PO/expense pending approval) → tag = approval, urgency = urgent (blocks spend; Garth's sign-off is on the critical path).
 - Google Calendar event subjects ("Invitation:" prefix) are caught by the structural filter — you won't see them.
 - Workspace admin notices about Garth's own account → fyi or action depending on what's needed.
 - Group ownership transfers, drive permission changes initiated by Ayar people → action.

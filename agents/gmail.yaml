@@ -4,8 +4,10 @@ poll_seconds: 300
 
 # Gmail search query. Multiple list entries run independently and are deduped,
 # but space-separated terms within one query are AND'd by Gmail.
+# `-label:ignore` keeps anything Garth has tagged "ignore" (via the Ignore button
+# in the UI, or by hand in Gmail) out of Haven entirely.
 queries:
-  - "is:unread is:important in:inbox"
+  - "is:unread is:important in:inbox -label:ignore"
 
 # ─── Never-keep (top priority — beats every accept rule) ────
 # Patterns here always reject, even from Ayar people. Use for "structural" noise
@@ -55,6 +57,256 @@ never_keep:
     - "^Receipt for\\b"
     - "^Your .* receipt\\b"
     - "\\bstatement (?:available|ready)\\b"
+    # Google Drive sharing notifications — "X shared 'doc' with you", folder
+    # shares, and access-request mails. These are never ARs. Subject patterns
+    # are a backstop; the real chokepoint is the sender_pattern below (the From
+    # is always a drive-shares noreply address). Belt-and-suspenders so a share
+    # is dropped even if Google tweaks the wording or the From address.
+    - "\\bshared (?:a|an|the|\\d+|') .*with you\\b"
+    - "\\bshared '.*' with you\\b"
+    - "\\bhas shared\\b.*\\bwith you\\b"
+    - "^Invitation to (?:edit|view|comment)\\b"
+    - "\\b(?:is )?request(?:ed|ing)? access to\\b"
+  # Sender-address patterns (case-insensitive, matched against the full From
+  # address). never_keep runs BEFORE the google.com noreply allowlist, so this
+  # rejects Drive shares that would otherwise be deferred to the LLM and shown.
+  sender_patterns:
+    # drive-shares-dm-noreply@google.com, drive-shares-noreply@docs.google.com, etc.
+    - "\\bdrive-shares[\\w.+-]*@"
+
+# Garth's own address — used to decide "directly addressed to me" for the
+# keep_only_if_direct rule below.
+self_email: garth@ayarlabs.com
+
+# ─── Keep only when directly addressed to Garth ────────────
+# Senders/domains here are kept ONLY when Garth is a direct To: recipient.
+# When he's merely Cc'd, Bcc'd, or on a distribution/thread copy, the item is
+# rejected as noise. Built for the IT-helpdesk / Freshservice ticket blasts
+# (it-helpdesk@ayarlabs.com, "Ayar Helpdesk"), which CC Garth on every ticket
+# thread even when nothing is assigned to him.
+# Runs after block/watchlist/label keeps (so those still win) but before the
+# generic ayarlabs.com domain accept — otherwise these would be auto-kept just
+# for being @ayarlabs.com.
+keep_only_if_direct:
+  senders:
+    - it-helpdesk@ayarlabs.com
+    - support@freshservice.com
+  domains: []
+
+# ─── Travel (force-keep + tag="travel") ────────────────────
+# Airline reservations, hotel confirmations, car rentals, itineraries, e-tickets.
+# These almost always arrive from a noreply/notifications address, so without
+# this rule they'd be rejected as noise by the reject sender_patterns below and
+# never reach the LLM. This rule runs BEFORE never_keep and the reject patterns:
+# a match force-accepts the item, flags it is_travel, and the poll pipeline
+# pins tag="travel" and applies a Gmail "travel" label.
+# Match if the sender domain ends with one of `domains` OR the subject matches
+# one of `subject_patterns`. Keep subject patterns specific to avoid false
+# positives on generic "reservation"/"confirmation" wording.
+travel:
+  # Domain match is by suffix, so the bare brand domain also covers its mail
+  # subdomains (email.united.com, e.delta.com, news.marriott.com, etc.).
+  # The subject_patterns below are a catch-all for any carrier/chain not listed.
+  domains:
+    # ─ Airlines — North America ─
+    - united.com
+    - aa.com
+    - delta.com
+    - southwest.com
+    - alaskaair.com
+    - jetblue.com
+    - hawaiianair.com
+    - flyfrontier.com
+    - spirit.com
+    - allegiantair.com
+    - suncountry.com
+    - aircanada.com
+    - westjet.com
+    - flyporter.com
+    # ─ Airlines — Europe ─
+    - lufthansa.com
+    - britishairways.com
+    - ba.com
+    - airfrance.com
+    - klm.com
+    - iberia.com
+    - vueling.com
+    - ryanair.com
+    - easyjet.com
+    - wizzair.com
+    - flysas.com
+    - swiss.com
+    - austrian.com
+    - brusselsairlines.com
+    - finnair.com
+    - flytap.com
+    - aerlingus.com
+    - lot.com
+    - turkishairlines.com
+    - virginatlantic.com
+    - eurowings.com
+    - condor.com
+    - norwegian.com
+    # ─ Airlines — Middle East / Africa ─
+    - emirates.com
+    - qatarairways.com
+    - etihad.com
+    - saudia.com
+    - ethiopianairlines.com
+    - flysaa.com
+    - kenya-airways.com
+    - royalairmaroc.com
+    - egyptair.com
+    # ─ Airlines — Asia / Pacific ─
+    - cathaypacific.com
+    - singaporeair.com
+    - qantas.com
+    - ana.co.jp
+    - jal.com
+    - jal.co.jp
+    - koreanair.com
+    - flyasiana.com
+    - evaair.com
+    - china-airlines.com
+    - airchina.com
+    - csair.com
+    - ceair.com
+    - thaiairways.com
+    - malaysiaairlines.com
+    - garuda-indonesia.com
+    - vietnamairlines.com
+    - philippineairlines.com
+    - airindia.com
+    - goindigo.in
+    - airnewzealand.com
+    - airnewzealand.co.nz
+    - virginaustralia.com
+    - jetstar.com
+    - airasia.com
+    - scoot.com
+    # ─ Airlines — Latin America ─
+    - latam.com
+    - avianca.com
+    - copaair.com
+    - aeromexico.com
+    - volaris.com
+    - voegol.com.br
+    - voeazul.com.br
+    # ─ Hotels — major chains (brand domain covers sub-brands) ─
+    - marriott.com
+    - hilton.com
+    - hyatt.com
+    - ihg.com
+    - choicehotels.com
+    - accor.com
+    - all.accor.com
+    - wyndhamhotels.com
+    - wyndham.com
+    - bestwestern.com
+    - fourseasons.com
+    - radissonhotels.com
+    - shangri-la.com
+    - mandarinoriental.com
+    - peninsula.com
+    - rosewoodhotels.com
+    - omnihotels.com
+    - loewshotels.com
+    - kimptonhotels.com
+    - melia.com
+    - nh-hotels.com
+    - premierinn.com
+    - travelodge.co.uk
+    - motel6.com
+    - redroof.com
+    - laquinta.com
+    - extendedstayamerica.com
+    - citizenm.com
+    - aman.com
+    # ─ Car rental ─
+    - hertz.com
+    - avis.com
+    - budget.com
+    - enterprise.com
+    - nationalcar.com
+    - alamo.com
+    - dollar.com
+    - thrifty.com
+    - sixt.com
+    - europcar.com
+    - paylesscar.com
+    - foxrentacar.com
+    - advantage.com
+    - acerentacar.com
+    - zipcar.com
+    - turo.com
+    # ─ OTAs / travel management / itinerary tools ─
+    - booking.com
+    - hotels.com
+    - expedia.com
+    - priceline.com
+    - orbitz.com
+    - travelocity.com
+    - hotwire.com
+    - agoda.com
+    - trip.com
+    - makemytrip.com
+    - airbnb.com
+    - vrbo.com
+    - kayak.com
+    - hopper.com
+    - tripit.com
+    - concur.com
+    - navan.com
+    - tripactions.com
+    - egencia.com
+    - amextravel.com
+    - bcdtravel.com
+    # ─ Rail ─
+    - amtrak.com
+    - trainline.com
+    - raileurope.com
+    - viarail.ca
+  subject_patterns:
+    - "\\bitinerary\\b"
+    - "\\be-?ticket\\b"
+    - "\\belectronic ticket\\b"
+    - "\\bboarding pass\\b"
+    - "\\bcheck[- ]?in (?:for )?(?:your )?(?:flight|online)\\b"
+    - "\\bbooking confirmation\\b"
+    - "\\bbooking reference\\b"
+    - "\\b(?:reservation|booking) confirmed\\b"
+    - "\\bflight (?:confirmation|reservation|booking|details)\\b"
+    - "\\byour (?:upcoming )?(?:flight|trip|stay|reservation|booking|rental)\\b"
+    - "\\bhotel (?:confirmation|reservation|booking)\\b"
+    - "\\bcar rental\\b"
+    - "\\brental (?:confirmation|agreement|reservation)\\b"
+    - "\\bconfirmation (?:number|code)\\b.*\\b(?:flight|hotel|rental|trip|reservation)\\b"
+    # Travel UPDATES (delays, cancellations, schedule/gate/seat changes, reminders)
+    - "\\bflight (?:delay|delayed|cancell?ation|cancell?ed|status|change|update)\\b"
+    - "\\b(?:schedule|gate|seat|flight) change\\b"
+    - "\\bschedule change\\b.*\\b(?:flight|trip|itinerary)\\b"
+    - "\\b(?:trip|travel|flight|reservation) (?:reminder|update)\\b"
+    - "\\byour (?:flight|trip|stay|reservation) (?:is|has|was)\\b"
+    - "\\bonline check[- ]?in (?:is )?(?:now )?(?:open|available)\\b"
+    - "\\btime to check in\\b"
+
+# ─── Priority approvals (force-keep, always URGENT) ────────
+# Approval requests that must always surface as tag="approval", urgency="urgent",
+# regardless of LLM judgment. Matched when the sender domain ends with one of
+# `domains` AND the subject matches one of `subject_patterns` (the subject gate
+# keeps Coupa *status* notices — "PO received", "invoice processed" — out).
+# Seeded with Coupa; add DocuSign/NetSuite/etc. here as needed.
+urgent_approvals:
+  domains:
+    - coupahost.com
+    - coupa.com
+  subject_patterns:
+    - "\\bapprov"            # approve / approval / approver / approvals
+    - "\\baction required\\b"
+    - "\\b(?:requires|need(?:s|ed)?|pending|awaiting) (?:your )?(?:approval|review|sign-?off)\\b"
+    - "\\brequisition\\b.*\\bapprov"
+    - "\\bpurchase order\\b.*\\bapprov"
+    - "\\bexpense report\\b.*\\bapprov"
 
 # ─── Hard-keep (highest priority) ──────────────────────────
 # These bypass the LLM filter and always show. The LLM still scores them
@@ -71,6 +323,9 @@ keep:
   # automated addresses (Google Drive shares, Calendar invites from Ayar, etc.) —
   # so they bypass the sender-pattern reject and go to the LLM instead, which
   # decides based on body content.
+  # NOTE: Google Drive *share* notifications are an exception — they're rejected
+  # up-front by the never_keep drive-shares sender_pattern, which runs before
+  # this allowlist.
   noreply_allowlist_domains:
     - google.com
     - googleapis.com

@@ -135,6 +135,30 @@ class GmailAuth:
                 )
             return self._service
 
+    def new_http(self, timeout: int = 30):
+        """Return a fresh AuthorizedHttp wrapping a brand-new httplib2.Http.
+
+        httplib2.Http is NOT thread-safe — it keeps a single TLS socket per host —
+        so the cached service's shared http cannot be used from the concurrent
+        `asyncio.to_thread` workers in the poll pipeline (Pass A conc=10, Pass C
+        conc=5). Two threads writing the same socket corrupt the TLS stream, which
+        surfaces as "[SSL] record layer failure" and read timeouts. Each threaded
+        `.execute()` must therefore pass its own http from this method.
+
+        Relies on get_service() having already loaded/refreshed creds under the
+        async lock, so this stays synchronous and safe to call inside a worker
+        thread.
+        """
+        import httplib2
+
+        from google_auth_httplib2 import AuthorizedHttp
+
+        if self._creds is None:
+            self._creds = self.credentials()
+        if self._creds is None:
+            raise RuntimeError("Gmail not authorized — connect Gmail first")
+        return AuthorizedHttp(self._creds, http=httplib2.Http(timeout=timeout))
+
     def is_authed(self) -> bool:
         return self.token_path.exists()
 

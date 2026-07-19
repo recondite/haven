@@ -180,7 +180,7 @@ class GmailFetcher:
             return self._user_email
         service = await self._service()
         profile = await asyncio.to_thread(
-            lambda: service.users().getProfile(userId="me").execute()
+            lambda: service.users().getProfile(userId="me").execute(http=self.auth.new_http())
         )
         self._user_email = (profile.get("emailAddress") or "").lower()
         return self._user_email
@@ -195,7 +195,7 @@ class GmailFetcher:
             return self._labels_map
         service = await self._service()
         result = await asyncio.to_thread(
-            lambda: service.users().labels().list(userId="me").execute()
+            lambda: service.users().labels().list(userId="me").execute(http=self.auth.new_http())
         )
         self._labels_map = {
             label["id"]: label.get("name", label["id"])
@@ -215,7 +215,7 @@ class GmailFetcher:
         service = await self._service()
 
         def _list_labels() -> dict:
-            return service.users().labels().list(userId="me").execute()
+            return service.users().labels().list(userId="me").execute(http=self.auth.new_http())
 
         listing = await asyncio.to_thread(_list_labels)
         for lbl in listing.get("labels", []) or []:
@@ -235,7 +235,7 @@ class GmailFetcher:
                         "messageListVisibility": "show",
                     },
                 )
-                .execute()
+                .execute(http=self.auth.new_http())
             )
 
         created = await asyncio.to_thread(_create)
@@ -263,7 +263,7 @@ class GmailFetcher:
             service.users().messages().batchModify(
                 userId="me",
                 body={"ids": msg_ids, "addLabelIds": [label_id]},
-            ).execute()
+            ).execute(http=self.auth.new_http())
 
         await asyncio.to_thread(_batch)
         return len(msg_ids)
@@ -292,7 +292,7 @@ class GmailFetcher:
                     format="metadata",
                     metadataHeaders=["From", "Date"],
                 )
-                .execute()
+                .execute(http=self.auth.new_http())
             )
 
         thread = await asyncio.to_thread(_do_get)
@@ -309,7 +309,7 @@ class GmailFetcher:
                     service.users()
                     .messages()
                     .list(userId="me", q=q, maxResults=max_per_query)
-                    .execute()
+                    .execute(http=self.auth.new_http())
                 )
 
             result = await asyncio.to_thread(_do_list)
@@ -340,7 +340,7 @@ class GmailFetcher:
                     format="metadata",
                     metadataHeaders=["From", "Subject", "To", "Cc", "Date"],
                 )
-                .execute()
+                .execute(http=self.auth.new_http())
             )
 
         msg = await asyncio.to_thread(_do_get)
@@ -373,7 +373,7 @@ class GmailFetcher:
                 service.users()
                 .messages()
                 .get(userId="me", id=msg_id, format="full")
-                .execute()
+                .execute(http=self.auth.new_http())
             )
 
         msg = await asyncio.to_thread(_do_get)

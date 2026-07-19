@@ -36,7 +36,7 @@ async def archive_id(msg_id: str) -> None:
             service.users()
             .messages()
             .modify(userId="me", id=msg_id, body={"removeLabelIds": ["INBOX"]})
-            .execute()
+            .execute(http=gmail_auth.new_http())
         )
 
     try:
@@ -46,3 +46,30 @@ async def archive_id(msg_id: str) -> None:
         raise HTTPException(500, f"Archive failed: {e}")
 
     await bus.publish("gmail_item_archived", {"msg_id": msg_id})
+
+
+async def archive_ids(msg_ids: list[str]) -> None:
+    """Remove the INBOX label from many messages in one batchModify call.
+
+    Non-destructive (messages stay in All Mail). Used by thread-level mark-done so
+    an entire Gmail conversation is archived in a single API round-trip. Raises
+    HTTPException on failure.
+    """
+    if not msg_ids:
+        return
+    service = await gmail_service()
+
+    def _do() -> None:
+        service.users().messages().batchModify(
+            userId="me",
+            body={"ids": msg_ids, "removeLabelIds": ["INBOX"]},
+        ).execute(http=gmail_auth.new_http())
+
+    try:
+        await asyncio.to_thread(_do)
+    except Exception as e:
+        log.error("Batch archive failed (%d ids): %s", len(msg_ids), e)
+        raise HTTPException(500, f"Batch archive failed: {e}")
+
+    for mid in msg_ids:
+        await bus.publish("gmail_item_archived", {"msg_id": mid})

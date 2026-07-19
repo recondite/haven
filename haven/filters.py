@@ -55,6 +55,24 @@ def _lower_set(values) -> set[str]:
     return {str(v).lower() for v in (values or [])}
 
 
+def is_direct_to(payload: dict[str, Any], self_email: str) -> bool:
+    """True if Garth is a direct To: recipient of this item.
+
+    Prefers the enrichment-derived `garth_recipient_role` ("to"|"cc"|"bcc") when
+    present — that's what cached/refiltered payloads carry. During the live
+    metadata-first filter pass the role isn't computed yet, so fall back to
+    scanning the raw `to` list for `self_email`.
+    """
+    role = (payload.get("garth_recipient_role") or "").lower()
+    if role:
+        return role == "to"
+    self_lc = (self_email or "").lower()
+    if not self_lc:
+        return False
+    to = payload.get("to") or []
+    return any((r.get("email") or "").lower() == self_lc for r in to)
+
+
 # ─── Dynamic block list (UI-managed) ───────────────────────
 def _load_blocklist() -> dict:
     if not BLOCKLIST_PATH.exists():
@@ -203,6 +221,60 @@ def watchlist_match(
     return None
 
 
+def travel_match(
+    cfg: dict,
+    subject: str = "",
+    sender_domain: str = "",
+) -> str | None:
+    """Return a short reason if this looks like a travel notification, else None.
+
+    Matches when the sender domain ends with a configured travel domain (so
+    `email.cathaypacific.com` matches `cathaypacific.com`) OR the subject matches
+    a configured travel subject pattern. Domains and patterns live in the
+    `travel` block of agents/gmail.yaml.
+    """
+    travel = cfg.get("travel") or {}
+    domains = _lower_set(travel.get("domains"))
+    sd = (sender_domain or "").lower()
+    if sd and domains:
+        for d in domains:
+            if sd == d or sd.endswith("." + d):
+                return f"travel domain {d}"
+    if subject:
+        for pattern in travel.get("subject_patterns") or []:
+            try:
+                if re.search(pattern, subject, re.IGNORECASE):
+                    return f"travel subject {pattern!r}"
+            except re.error as e:
+                log.warning("Invalid travel subject_pattern %r: %s", pattern, e)
+    return None
+
+
+def urgent_approval_match(cfg: dict, subject: str = "", sender_domain: str = "") -> str | None:
+    """Return a reason if this is a priority approval request that must always be
+    surfaced as URGENT, else None.
+
+    Matches when the sender domain ends with a configured `urgent_approvals`
+    domain AND the subject matches one of its approval `subject_patterns` (so a
+    Coupa *status* notice like "PO received" — no approval language — is NOT
+    swept in). The poll pipeline pins tag="approval", urgency="urgent" on the
+    is_priority_approval flag.
+    """
+    ua = cfg.get("urgent_approvals") or {}
+    domains = _lower_set(ua.get("domains"))
+    sd = (sender_domain or "").lower()
+    domain_ok = bool(sd and domains and any(sd == d or sd.endswith("." + d) for d in domains))
+    if not domain_ok:
+        return None
+    for pattern in ua.get("subject_patterns") or []:
+        try:
+            if re.search(pattern, subject or "", re.IGNORECASE):
+                return f"urgent approval ({sd}): {pattern!r}"
+        except re.error as e:
+            log.warning("Invalid urgent_approvals subject_pattern %r: %s", pattern, e)
+    return None
+
+
 def apply_filter(payload: dict[str, Any]) -> tuple[str, str, dict]:
     """Run hard rules against an enriched item payload.
 
@@ -221,6 +293,15 @@ def apply_filter(payload: dict[str, Any]) -> tuple[str, str, dict]:
     sender_name = (payload.get("sender_name") or "").lower()
     subject = payload.get("subject") or ""
     flags: dict = {}
+
+    # ─── Ignore label (highest priority — beats everything) ─
+    # Anything Garth has tagged with the Gmail "ignore" label is never imported,
+    # regardless of sender/subject/watchlist. The query already excludes
+    # `-label:ignore`, but re-check here so cached refilters and force re-polls
+    # (which bypass the rejection store) still drop it.
+    item_labels_lc = {(l or "").lower() for l in (payload.get("labels") or [])}
+    if "ignore" in item_labels_lc:
+        return Decision.REJECT, "ignore label", flags
 
     # ─── Dynamic block list (highest priority) ──────────────
     blocked, blk_reason = is_blocked(sender, sender_domain)
@@ -254,6 +335,42 @@ def apply_filter(payload: dict[str, Any]) -> tuple[str, str, dict]:
         if "elt" in label_name:
             flags["is_elt"] = True
         return Decision.ACCEPT, f"label match: {label_name}", flags
+
+    # ─── Keep only when directly addressed to Garth ─────────
+    # IT-helpdesk / Freshservice ticket blasts (it-helpdesk@ayarlabs.com) CC Garth
+    # on every ticket thread. Keep them only when he's a direct To: recipient;
+    # otherwise reject as noise. Runs before the generic ayarlabs.com domain accept
+    # so these don't get auto-kept just for being @ayarlabs.com. Block/watchlist/
+    # label keeps above still win.
+    direct_cfg = cfg.get("keep_only_if_direct") or {}
+    direct_senders = _lower_set(direct_cfg.get("senders"))
+    direct_domains = _lower_set(direct_cfg.get("domains"))
+    if (sender and sender in direct_senders) or (sender_domain and sender_domain in direct_domains):
+        self_email = (cfg.get("self_email") or "").lower()
+        if is_direct_to(payload, self_email):
+            flags["direct_to_garth"] = True
+            return Decision.ACCEPT, "direct To: recipient (keep_only_if_direct)", flags
+        return Decision.REJECT, "it-helpdesk: not directly addressed to Garth", flags
+
+    # ─── Priority approvals (force-keep, pinned URGENT) ─────
+    # Coupa (and similar) approval requests. They arrive from do-not-reply
+    # addresses, so they must be caught here — before never_keep and the reject
+    # sender_patterns — or they'd be dropped as noise. The poll pipeline pins
+    # tag="approval" and urgency="urgent" on the is_priority_approval flag.
+    approval_reason = urgent_approval_match(cfg, subject=subject, sender_domain=sender_domain)
+    if approval_reason:
+        flags["is_priority_approval"] = True
+        return Decision.ACCEPT, approval_reason, flags
+
+    # ─── Travel (force-keep + tag="travel") ─────────────────
+    # Airline/hotel/car-rental confirmations and itineraries. These come from
+    # noreply/notifications addresses, so they must be caught here — before
+    # never_keep (receipts) and the reject sender_patterns below — or they'd be
+    # dropped as noise. The poll pipeline pins tag="travel" on the is_travel flag.
+    travel_reason = travel_match(cfg, subject=subject, sender_domain=sender_domain)
+    if travel_reason:
+        flags["is_travel"] = True
+        return Decision.ACCEPT, travel_reason, flags
 
     # ─── Never-keep (structural noise — beats every accept rule) ──
     # Calendar invites, OOO/PTO, password resets, receipts. These are noise
@@ -352,3 +469,4 @@ REJECT_OVERRIDE_PAYLOAD = {
     "suggested_action": "",
     "suggested_reply": "",
 }
+# (travel notifications are force-kept upstream and tagged "travel" by the poll pipeline)

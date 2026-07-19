@@ -298,26 +298,35 @@ class GmailFetcher:
         thread = await asyncio.to_thread(_do_get)
         return enrichment.derive_thread_state(thread.get("messages", []) or [], user_email)
 
-    async def list_message_ids(self, max_per_query: int = 100) -> list[str]:
+    async def list_message_ids(self, max_total: int = 2000, page_size: int = 100) -> list[str]:
+        """Full id list for the configured queries, paginated to completion (up to
+        max_total). Enumerating the WHOLE unread set matters: the poll uses it as
+        the live AR set to reconcile the cache (read/resolved items are pruned), so
+        a single 100-cap page would both hide items past 100 and defeat the prune."""
         service = await self._service()
         seen: set[str] = set()
         ordered: list[str] = []
 
         for query in self.queries:
-            def _do_list(q: str = query) -> dict:
-                return (
-                    service.users()
-                    .messages()
-                    .list(userId="me", q=q, maxResults=max_per_query)
-                    .execute(http=self.auth.new_http())
-                )
+            page_token: str | None = None
+            while len(ordered) < max_total:
+                def _do_list(q: str = query, tok: str | None = page_token) -> dict:
+                    return (
+                        service.users()
+                        .messages()
+                        .list(userId="me", q=q, maxResults=page_size, pageToken=tok)
+                        .execute(http=self.auth.new_http())
+                    )
 
-            result = await asyncio.to_thread(_do_list)
-            for msg in result.get("messages", []) or []:
-                mid = msg["id"]
-                if mid not in seen:
-                    seen.add(mid)
-                    ordered.append(mid)
+                result = await asyncio.to_thread(_do_list)
+                for msg in result.get("messages", []) or []:
+                    mid = msg["id"]
+                    if mid not in seen:
+                        seen.add(mid)
+                        ordered.append(mid)
+                page_token = result.get("nextPageToken")
+                if not page_token:
+                    break
         return ordered
 
     async def fetch_metadata(self, msg_id: str) -> dict:

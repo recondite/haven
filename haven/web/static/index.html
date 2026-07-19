@@ -1081,7 +1081,7 @@ function startSSE() {
   es.onerror = () => { state.sse.live = false; updateLive(); };  // EventSource auto-reconnects
   es.addEventListener('heartbeat', () => { state.sse.live = true; state.sse.lastEvent = Date.now(); updateLive(); });
   const SUFFIXES = ['_item', '_handled', '_unhandled', '_snoozed', '_unsnoozed', '_linearized',
-    '_linear_closed', '_poll_complete', '_cache_cleared', '_item_archived', '_blocked', '_ignored'];
+    '_linear_closed', '_poll_complete', '_cache_cleared', '_item_archived', '_blocked', '_ignored', '_resolved'];
   for (const s of SOURCES) for (const suf of SUFFIXES) {
     es.addEventListener(s + suf, () => { state.sse.lastEvent = Date.now(); scheduleRefetch(s); });
   }

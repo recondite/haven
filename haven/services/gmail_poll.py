@@ -30,6 +30,29 @@ from haven.sources.gmail import GmailFetcher, GmailItem
 
 log = logging.getLogger("haven")
 
+# Hard ceiling on the enumerated id list (matches GmailFetcher.list_message_ids
+# default). Set high so the unread set is enumerated to completion for any real
+# inbox — the id list is cheap and completeness makes the cache reconcile
+# reliable. Only if a poll actually returns this many do we skip the prune.
+LIST_MAX_TOTAL = 2000
+
+# Max NEW (uncached) items to fully fetch + score per poll. Enumeration can now
+# return a large unread set (Gmail over-marks "important"); this bounds the
+# expensive per-poll work to roughly the pre-pagination volume. Reconcile/prune
+# still run over the COMPLETE set — only processing is capped.
+PROCESS_CAP = 100
+
+
+def resolved_ids(cached_items: list[dict], live_ids: list[str]) -> list[str]:
+    """Cached Gmail ids that have left the live unread/important set (read,
+    archived, or deprioritised in Gmail directly) and were NOT handled inside
+    Haven — i.e. the ones to drop so Haven mirrors the inbox. Items with
+    handled_at are retained (Hide-handled toggle / unmark). The caller must skip
+    this when the live id list may be capped."""
+    live = set(live_ids)
+    return [it["msg_id"] for it in cached_items
+            if it.get("msg_id") and it["msg_id"] not in live and not it.get("handled_at")]
+
 
 async def run(force: bool = False) -> dict:
     """Poll Gmail and return the current matching set. Raises HTTPException on
@@ -58,9 +81,24 @@ async def run(force: bool = False) -> dict:
         cached = cursor_store.get_cached_payloads("gmail", all_ids)
         previously_rejected = cursor_store.get_rejected_set("gmail", all_ids)
 
+    # Reconcile: the query IS the live AR set. A cached item whose id is no longer
+    # in it has been read / archived / deprioritised in Gmail directly, so drop it
+    # — Haven mirrors the inbox, it doesn't hoard resolved mail. Keep items Haven
+    # itself handled (retained for the Hide-handled toggle + unmark). Skip only if
+    # the id list hit its hard ceiling (can't tell "read" from "didn't fit").
+    if not force and len(all_ids) < LIST_MAX_TOTAL:
+        stale = resolved_ids(cursor_store.list_cached("gmail"), all_ids)
+        for mid in stale:
+            cursor_store.delete_cached("gmail", mid)
+            await bus.publish("gmail_resolved", {"msg_id": mid})
+        if stale:
+            log.info("Gmail poll: pruned %d resolved item(s) no longer in the unread set", len(stale))
+
     # IDs that need fresh processing this turn — excludes already-cached and
-    # previously-rejected items.
+    # previously-rejected items, then capped so a large unread set doesn't turn
+    # one poll into hundreds of fetch+score calls (the tail is picked up next poll).
     to_process = [mid for mid in all_ids if mid not in cached and mid not in previously_rejected]
+    to_process = to_process[:PROCESS_CAP]
 
     # Pass A: cheap metadata-only fetch for filter decision (parallel, conc=10).
     metadata_by_id: dict[str, dict] = {}

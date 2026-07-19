@@ -78,6 +78,23 @@ def test_map_identity_and_coverage(sp):
     assert cov["by_system"]["slack"] == 1
 
 
+def test_roster_drift_flags_joiners_and_stale(sp, monkeypatch):
+    identity.load_roster()
+    # roster people have no resolved slack id yet -> all "stale" (signal only)
+    class FakeStore:
+        def list_cached(self, src):
+            if src == "gmail":
+                return [{"sender": "New Person <newhire@ayarlabs.com>", "subject": "hi"},
+                        {"sender": "vendor@outside.com", "subject": "pitch"}]
+            return []
+    monkeypatch.setattr(identity, "cursor_store", FakeStore())
+    d = identity.roster_drift()
+    joiner_emails = [j["email"] for j in d["candidate_joiners"]]
+    assert "newhire@ayarlabs.com" in joiner_emails      # internal, no page
+    assert "vendor@outside.com" not in joiner_emails     # external, ignored
+    assert any(s["email"] == "jeff@ayarlabs.com" for s in d["roster_people_without_slack_id"])
+
+
 def test_manual_override_not_clobbered(sp):
     identity.load_roster()
     jeff = sp.person_by_email("jeff@ayarlabs.com")

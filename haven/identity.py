@@ -109,3 +109,52 @@ _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 def _extract_email(s: str) -> str | None:
     m = _EMAIL_RE.search(s or "")
     return m.group(0).lower() if m else None
+
+
+async def scheduled_drift() -> dict:
+    """Weekly task: refresh roster + Slack ids, then report drift. Logs the
+    proposal; writes nothing (changes go through approval-gated ingest)."""
+    load_roster()
+    try:
+        await resolve_slack()
+    except Exception as e:  # noqa: BLE001
+        log.warning("drift: slack resolve failed: %s", e)
+    report = roster_drift()
+    log.info("Roster drift: %d candidate joiners, %d without slack id",
+             len(report["candidate_joiners"]), len(report["roster_people_without_slack_id"]))
+    return report
+
+
+def roster_drift() -> dict:
+    """Weekly drift check: diff live signals against the SecondBrain roster and
+    PROPOSE (never write) page updates. Right-sized per plan v4 §Phase 3 — a
+    report, not a reconciliation engine. Approval-gated changes go through ingest.
+
+    Two signals available without JIRA:
+      - candidate_joiners: @ayarlabs.com senders in live items with no roster page
+      - candidate_leavers/stale: roster people whose Slack id no longer resolves
+    """
+    roster_emails = {p["work_email"].lower() for p in spine.list_people()
+                     if p.get("work_email")}
+    # Joiners: internal senders we're seeing but don't have a page for.
+    joiners: dict[str, str] = {}
+    for src in config.KNOWN_SOURCES:
+        for it in cursor_store.list_cached(src):
+            email = _extract_email(it.get("sender") or it.get("from") or "")
+            if email and email.endswith("@ayarlabs.com") and email not in roster_emails:
+                joiners.setdefault(email, it.get("sender") or email)
+    # Stale: roster people with an email but no resolved Slack id (departed, or
+    # email drift). Only a signal — humans decide.
+    stale = []
+    for p in spine.list_people():
+        if not p.get("work_email"):
+            continue
+        has_slack = any(i["system"] == "slack" for i in spine.identities_for_person(p["id"]))
+        if not has_slack:
+            stale.append({"name": p["name"], "email": p["work_email"], "page": p["secondbrain_page"]})
+    return {
+        "candidate_joiners": [{"email": e, "seen_as": n} for e, n in sorted(joiners.items())],
+        "roster_people_without_slack_id": stale,
+        "proposal": "Review joiners for new SecondBrain pages (via ingest); "
+                    "verify stale entries aren't departures. No pages were changed.",
+    }

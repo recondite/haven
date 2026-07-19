@@ -127,6 +127,21 @@ async def lifespan(app: FastAPI):
             continue
         schedulers.append(asyncio.create_task(_scheduled_poll_loop(name, poll_fn, secs)))
 
+    # Weekly roster-drift check (plan v4 Phase 3): refresh roster + ids, report
+    # drift. Proposes only — writes nothing. Right-sized, not a live engine.
+    async def _weekly_drift() -> None:
+        from haven import identity
+        await asyncio.sleep(120)  # let startup polls settle
+        while True:
+            try:
+                await identity.scheduled_drift()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("weekly drift error: %s", e)
+            await asyncio.sleep(7 * 24 * 3600)
+    schedulers.append(asyncio.create_task(_weekly_drift()))
+
     try:
         yield
     finally:

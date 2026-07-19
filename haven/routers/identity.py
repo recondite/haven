@@ -37,6 +37,12 @@ async def unresolved() -> dict:
     return {"unresolved": identity.unresolved_senders()}
 
 
+@router.get("/identity/drift")
+async def drift() -> dict:
+    """Weekly roster-drift report (proposes, never writes)."""
+    return identity.roster_drift()
+
+
 @router.get("/people")
 async def people(reports_only: bool = False) -> dict:
     return {"people": spine.list_people(reports_only=reports_only)}

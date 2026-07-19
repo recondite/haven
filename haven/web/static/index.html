@@ -291,6 +291,10 @@
       </div>
     </div>
 
+    <div class="dryrun" id="forced-banner" hidden style="background:var(--err-dim);border-color:var(--err)">
+      <span class="dr-badge" style="background:var(--err);color:#fff">FORCED DRY</span>
+      <span id="forced-reason"></span>
+    </div>
     <div class="dryrun" id="dryrun-banner" hidden>
       <span class="dr-badge">DRY-RUN</span>
       Outbound sends are simulated — Approve logs the send, nothing leaves Haven.
@@ -347,6 +351,7 @@ const state = {
   srcOff: new Set(),   // sources filtered OUT of the inbox (empty = show all)
   editingDraft: null,  // draft id currently being edited in the approvals pane
   people: null, identityCoverage: null,  // People view (lazy-loaded)
+  system: null,        // /api/system/state (send mode, stuck actions, backups)
   selected: new Set(),  // multi-select: item keys checked for bulk actions
   selKey: null,          // inbox selection: "source|msg_id"
   selDraft: null,        // approvals selection: draft id
@@ -475,6 +480,7 @@ async function fetchWatchlist() {
 async function fetchMeta() {
   try { state.health = await api('/api/health'); } catch (e) { state.health = { status: 'error', error: e.message }; }
   try { state.llm = await api('/api/llm/status'); } catch (e) { state.llm = null; }
+  try { state.system = await api('/api/system/state'); } catch (e) { state.system = null; }
 }
 
 /* Debounced per-source refetch, driven by SSE events. */
@@ -543,6 +549,10 @@ function renderChrome() {
   const [t, s] = VIEWMETA[state.view];
   $('#view-title').textContent = t; $('#view-sub').textContent = s;
   $('#dryrun-banner').hidden = !(state.view === 'approvals' && state.approvals.dry_run);
+  // M0: boot tripwire / forced-dry banner — shown on every view until re-armed
+  const forced = state.system && state.system.send_mode && state.system.send_mode.forced_reason;
+  $('#forced-banner').hidden = !forced;
+  if (forced) $('#forced-reason').textContent = forced;
   $('#content').classList.toggle('single', state.view === 'system');
 
   // badges + counts — counted by thread, matching the collapsed inbox rows
@@ -1011,6 +1021,7 @@ function renderSystem() {
   const pend = state.approvals.drafts.length;
   const h = state.health || {};
   const llm = state.llm;
+  const sys = state.system;
   const srcCards = SOURCES.map(s => {
     const a = state.auth[s] || {};
     const items = state.items[s];
@@ -1054,9 +1065,27 @@ function renderSystem() {
       <div class="sys-card"><div class="sys-hd"><span class="nm">Send mode</span><span class="st ${state.approvals.dry_run ? 'st-warn' : 'st-ok'}">${state.approvals.dry_run ? 'DRY-RUN' : 'LIVE'}</span></div>
         <div class="sys-kv">
           <span class="k">Pending drafts</span><span class="v">${pend}</span>
+          <span class="k">Source</span><span class="v">${esc(sys && sys.send_mode ? sys.send_mode.source + (sys.send_mode.override ? ' (' + sys.send_mode.override + ')' : '') : '—')}</span>
+          ${sys && sys.send_mode && sys.send_mode.forced_reason ? `<span class="k">Forced</span><span class="v err">${esc(sys.send_mode.forced_reason)}</span>` : ''}
           <span class="k">Guardrail</span><span class="v">1 approval = 1 send</span>
-          <span class="k">Behavior</span><span class="v">${state.approvals.dry_run ? 'approve logs, nothing transmits' : 'approve transmits'}</span>
+        </div>
+        <div style="margin-top:10px">
+          ${state.approvals.dry_run
+            ? `<button class="btn btn-ghost" style="width:100%;justify-content:center;font-size:11.5px;padding:6px" data-sendmode="live" title="Re-arm live sending (audited)">Arm LIVE sending</button>`
+            : `<button class="btn btn-danger" style="width:100%;justify-content:center;font-size:11.5px;padding:6px" data-sendmode="dry" title="Panic switch — approve stops transmitting immediately (audited)">⛔ Switch to DRY (panic)</button>`}
         </div></div>
+      <div class="sys-card ${sys && sys.stuck_actions && sys.stuck_actions.length ? 'down' : ''}"><div class="sys-hd"><span class="nm">Send ledger</span><span class="st ${sys && sys.stuck_actions && sys.stuck_actions.length ? 'st-warn' : 'st-ok'}">${sys && sys.stuck_actions ? (sys.stuck_actions.length ? sys.stuck_actions.length + ' NEEDS VERIFY' : 'CLEAN') : '—'}</span></div>
+        <div class="sys-kv">
+          <span class="k">Backups</span><span class="v">${sys && sys.backups ? `${sys.backups.count} · latest ${esc(sys.backups.latest || 'none')} · ${Math.round((sys.backups.total_bytes || 0) / 1024)} KB` : '—'}</span>
+        </div>
+        ${sys && sys.stuck_actions && sys.stuck_actions.length ? sys.stuck_actions.map(a =>
+          `<div style="margin-top:8px;font-size:11px;border:1px solid var(--warn);border-radius:6px;padding:6px 8px">
+            <div style="color:var(--warn)">action #${a.id} stuck in 'sending' — ${esc(a.draft_kind)} → ${esc(a.draft_target || '')}</div>
+            <div style="margin-top:5px;display:flex;gap:6px">
+              <button class="btn btn-ok" style="font-size:10.5px;padding:3px 8px" data-resolve="${a.id}" data-rstatus="sent">it sent — mark sent</button>
+              <button class="btn btn-ghost" style="font-size:10.5px;padding:3px 8px" data-resolve="${a.id}" data-rstatus="failed">it didn't — mark failed</button>
+            </div></div>`).join('') : ''}
+      </div>
     </div>
   </div>`;
   $('#list-pane').querySelectorAll('[data-poll]').forEach(b => b.addEventListener('click', async () => {
@@ -1067,6 +1096,27 @@ function renderSystem() {
       await fetchItems(s);
       toast(`${SRC[s].label} poll complete`);
     } catch (e) { toast(`${SRC[s].label} poll failed: ` + e.message, true); }
+    render();
+  }));
+  // M0: panic switch + stuck-send resolution (all audited server-side)
+  $('#list-pane').querySelectorAll('[data-sendmode]').forEach(b => b.addEventListener('click', async () => {
+    const mode = b.dataset.sendmode;
+    if (mode === 'live' && !confirm('Arm LIVE sending? Approve will actually transmit.')) return;
+    try {
+      await api('/api/system/send-mode', { method: 'POST', body: JSON.stringify({ mode }) });
+      await Promise.all([fetchMeta(), fetchApprovals()]);
+      toast(mode === 'dry' ? 'Send mode: DRY — approvals no longer transmit' : 'Send mode: LIVE — armed');
+    } catch (e) { toast('send-mode flip failed: ' + e.message, true); }
+    render();
+  }));
+  $('#list-pane').querySelectorAll('[data-resolve]').forEach(b => b.addEventListener('click', async () => {
+    const note = prompt('What did you verify? (e.g. "reply visible in thread" / "nothing arrived")') || '';
+    try {
+      await api(`/api/system/actions/${b.dataset.resolve}/resolve`,
+        { method: 'POST', body: JSON.stringify({ status: b.dataset.rstatus, note }) });
+      await fetchMeta();
+      toast(`Action #${b.dataset.resolve} resolved: ${b.dataset.rstatus}`);
+    } catch (e) { toast('resolve failed: ' + e.message, true); }
     render();
   }));
 }

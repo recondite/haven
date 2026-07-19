@@ -135,6 +135,22 @@ _MIGRATIONS: list[str] = [
         UNIQUE(system, system_id)
     );
     """,
+    # v5 — M0 safety enforcement (build plan v2): audit becomes append-only by
+    # TRIGGER, not docstring — any UPDATE/DELETE aborts, bug or not. runtime_config
+    # holds operator-facing switches (send_mode panic switch / boot tripwire);
+    # consulted by executor.is_dry_run() ahead of the env var.
+    """
+    CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit
+    BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;
+    CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit
+    BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;
+    CREATE TABLE runtime_config (
+        key        TEXT PRIMARY KEY,
+        value      TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_by TEXT
+    );
+    """,
 ]
 
 _KIND_BY_SOURCE = {
@@ -366,6 +382,51 @@ class Spine:
         with self._lock:
             row = self._conn.execute("SELECT * FROM action WHERE draft_id=?", (draft_id,)).fetchone()
             return dict(row) if row else None
+
+    # ─── Runtime config (operator switches; M0) ──────────
+    def get_runtime_config(self, key: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM runtime_config WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else None
+
+    def set_runtime_config(self, key: str, value: str | None, by: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO runtime_config (key, value, updated_by) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                "updated_by=excluded.updated_by, updated_at=datetime('now')",
+                (key, value, by),
+            )
+            self._conn.commit()
+        self.audit(by, "config_changed", "runtime_config", None, {"key": key, "value": value})
+
+    def list_actions(self, status: str) -> list[dict]:
+        with self._lock:
+            return [dict(r) for r in self._conn.execute(
+                "SELECT a.*, d.kind AS draft_kind, d.target AS draft_target, "
+                "d.payload AS draft_payload FROM action a JOIN draft d ON d.id=a.draft_id "
+                "WHERE a.status=? ORDER BY a.created_at", (status,)).fetchall()]
+
+    def resolve_action(self, action_id: int, status: str, note: str, actor: str = "gt") -> dict:
+        """Resolve a stuck send (crash between send and status update). Legal ONLY
+        from 'sending' and only to sent|failed — GT verified externally what
+        actually happened; the note records the evidence."""
+        if status not in ("sent", "failed"):
+            raise ValueError(f"resolve status must be sent|failed, got {status!r}")
+        with self._lock:
+            row = self._conn.execute("SELECT status FROM action WHERE id=?", (action_id,)).fetchone()
+            if row is None:
+                raise ValueError(f"action {action_id} not found")
+            if row["status"] != "sending":
+                raise ValueError(f"action {action_id} is {row['status']!r}; only 'sending' can be resolved")
+            self._conn.execute(
+                "UPDATE action SET status=?, result=? WHERE id=?",
+                (status, json.dumps({"resolved_by": actor, "note": note[:500]}), action_id),
+            )
+            self._conn.commit()
+        self.audit(actor, "action_resolved", "action", action_id, {"status": status, "note": note[:300]})
+        return {"action_id": action_id, "status": status}
 
     # ─── Identity ────────────────────────────────────────
     def upsert_person(self, page: str, name: str, title: str | None, department: str | None,

@@ -37,6 +37,7 @@ from haven.routers import (
     otter,
     slack,
     spine,
+    system,
     wiki,
 )
 
@@ -105,9 +106,12 @@ async def _scheduled_poll_loop(name: str, poll_fn, poll_seconds: int) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from haven import store, wiki as wiki_mod
+    from haven import executor, store, wiki as wiki_mod
     store.ensure_dirs()
     wiki_mod.ensure_wiki()
+    # M0.3: live send on an unsafe posture (non-localhost + no auth) is forced
+    # dry before anything can fire. Audited; surfaced on /system and the UI.
+    executor.enforce_boot_tripwire()
     heartbeat = asyncio.create_task(_heartbeat_loop())
 
     # Spawn one background poller per source. Reads `poll_seconds` from each
@@ -141,6 +145,24 @@ async def lifespan(app: FastAPI):
                 log.error("weekly drift error: %s", e)
             await asyncio.sleep(7 * 24 * 3600)
     schedulers.append(asyncio.create_task(_weekly_drift()))
+
+    # Nightly snapshot of the SQLite stores (M0.2). Runs once at startup (so a
+    # backup exists from day one), then daily; idempotent per calendar day.
+    async def _nightly_backup() -> None:
+        from haven import backup as backup_mod
+        await asyncio.sleep(60)
+        while True:
+            try:
+                results = backup_mod.backup_now()
+                created = [r["file"] for r in results if r.get("status") == "created"]
+                if created:
+                    log.info("Backup created: %s", ", ".join(created))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("nightly backup error: %s", e)
+            await asyncio.sleep(24 * 3600)
+    schedulers.append(asyncio.create_task(_nightly_backup()))
 
     try:
         yield
@@ -305,6 +327,7 @@ app.include_router(dispatch.router)
 app.include_router(identity.router)
 app.include_router(evals.router)
 app.include_router(knowledge.router)
+app.include_router(system.router)
 
 
 # ─── Static UI (mounted last so /api/* and /oauth/* take precedence) ───

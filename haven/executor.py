@@ -43,7 +43,40 @@ class ExecutorError(Exception):
 
 
 def is_dry_run() -> bool:
+    """Effective send mode. The runtime_config override (panic switch / boot
+    tripwire, M0) wins over the .env default — so a UI flip to dry sticks
+    across restarts and a tripwire can't be out-raced by config edits."""
+    override = spine.get_runtime_config("send_mode")
+    if override in ("dry", "live"):
+        return override != "live"
     return config.SEND_MODE != "live"
+
+
+def enforce_boot_tripwire() -> str | None:
+    """M0.3: live send on a non-localhost bind with no auth token is never
+    allowed to boot. Forces the runtime_config override to dry (audited) and
+    returns the reason, else None. Called from app startup."""
+    if is_dry_run():
+        return None
+    if config.HAVEN_HOST != "127.0.0.1" and not config.HAVEN_AUTH_TOKEN:
+        reason = (f"live send blocked at boot: bind={config.HAVEN_HOST} with no "
+                  f"HAVEN_AUTH_TOKEN — set a token or bind localhost, then re-arm")
+        spine.set_runtime_config("send_mode", "dry", by="boot-tripwire")
+        spine.set_runtime_config("send_mode_forced_reason", reason, by="boot-tripwire")
+        log.error(reason)
+        return reason
+    return None
+
+
+def set_send_mode(mode: str, actor: str = "gt") -> dict:
+    """Audited panic switch (M0.4). Flipping either direction is an explicit,
+    logged act; a manual flip clears any tripwire reason."""
+    if mode not in ("dry", "live"):
+        raise ExecutorError(f"send mode must be dry|live, got {mode!r}")
+    spine.set_runtime_config("send_mode", mode, by=actor)
+    spine.set_runtime_config("send_mode_forced_reason", None, by=actor)
+    spine.audit(actor, "send_mode_changed", "runtime_config", None, {"mode": mode})
+    return {"mode": mode, "dry_run": is_dry_run()}
 
 
 # ─── Transports (the ONLY outbound verbs Haven has) ─────

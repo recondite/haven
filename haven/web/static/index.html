@@ -1,3565 +1,945 @@
 <!DOCTYPE html>
+<!-- Haven — Command Center (production UI)
+  Synthesis of the mockup competition:
+  - Shell + visual system from option-c.html (sidebar / grouped list / detail pane, #0d1117 + #5e6ad2)
+  - Keyboard model + row density from option-a.html (j/k, e/s/S/c/d, a/r, n/h, 1-4, persistent keymap bar)
+  - "Why now" line from option-b.html (derived honestly from real payload fields only)
+  All data comes from the live Haven API. No hardcoded items.
+  Previous UI preserved at /legacy.html
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Haven</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235e6ad2'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='-apple-system,Segoe UI,Roboto,sans-serif' font-weight='700' font-size='18' fill='white'%3EH%3C/text%3E%3C/svg%3E">
+<title>Haven — Command Center</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235e6ad2'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='sans-serif' font-weight='700' font-size='18' fill='white'%3EH%3C/text%3E%3C/svg%3E">
 <style>
-  :root {
-    --bg: #0f1117;
-    --panel: #1a1d29;
-    --panel-2: #232633;
-    --text: #e8eaf0;
-    --muted: #8a91a6;
-    --accent: #5e6ad2;
-    --accent-hover: #7681e4;
-    --ok: #3fb950;
-    --warn: #d29922;
-    --err: #f85149;
-    --border: #2a2f3d;
-    --content-max: 1800px;
-    --header-h: 60px;
+  :root{
+    --bg:#0d1117; --bg2:#0a0d12; --panel:#151a23; --panel-2:#1c2230; --raise:#232a3a;
+    --text:#e8ecf4; --text-2:#b7bfd0; --muted:#7d8699; --faint:#565f72;
+    --accent:#5e6ad2; --accent-2:#7681e4; --accent-dim:rgba(94,106,210,.14);
+    --ok:#3fb950; --ok-dim:rgba(63,185,80,.13);
+    --warn:#d29922; --warn-dim:rgba(210,153,34,.13);
+    --err:#f85149; --err-dim:rgba(248,81,73,.12);
+    --info:#58a6ff; --info-dim:rgba(88,166,255,.12);
+    --purple:#bc8cff; --purple-dim:rgba(188,140,255,.12);
+    --border:#232a38; --border-2:#2c3446;
+    --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
   }
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
+  *{box-sizing:border-box} [hidden]{display:none!important}
+  html,body{height:100%}
+  body{margin:0;font-family:var(--sans);font-size:13px;background:var(--bg);color:var(--text);overflow:hidden}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#2b3243;border-radius:6px;border:2px solid var(--bg)}
+  ::-webkit-scrollbar-track{background:transparent}
+  button{font-family:inherit}
+  a{color:var(--accent-2)}
 
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    font-size: 14px;
-    min-height: 100vh;
-  }
+  .shell{display:flex;flex-direction:column;height:100vh}
+  .app{display:grid;grid-template-columns:224px 1fr;flex:1;min-height:0}
 
-  /* === Buttons === */
-  button, .btn {
-    background: var(--accent);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: 8px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-block;
-    transition: background 0.15s;
-    line-height: 1.2;
-  }
-  button:hover, .btn:hover { background: var(--accent-hover); }
-  .btn-secondary {
-    background: var(--panel-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    padding: 8px 14px;
-  }
-  .btn-secondary:hover { background: var(--border); }
-  .btn-secondary:disabled { opacity: 0.6; cursor: progress; }
+  /* ============ SIDEBAR ============ */
+  .sidebar{background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+  .brand{display:flex;align-items:center;gap:9px;padding:14px 14px 12px;flex:none}
+  .brand .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--accent),#8a5ed2);display:grid;place-items:center;font-weight:800;font-size:14px;color:#fff;flex:none}
+  .brand .name{font-weight:700;font-size:14px;letter-spacing:-.01em}
+  .brand .env{margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--warn);background:var(--warn-dim);border:1px solid rgba(210,153,34,.35);padding:2px 6px;border-radius:99px}
+  .brand .env.live{color:var(--ok);background:var(--ok-dim);border-color:rgba(63,185,80,.35)}
+  .nav{padding:4px 8px;display:flex;flex-direction:column;gap:1px;flex:none}
+  .nav-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:14px 8px 5px;flex:none}
+  .nav-item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;color:var(--text-2);cursor:pointer;border:none;background:none;width:100%;text-align:left;font-size:13px;line-height:1.3}
+  .nav-item:hover{background:var(--panel);color:var(--text)}
+  .nav-item.active{background:var(--accent-dim);color:var(--text)}
+  .nav-item.active .ni-icon{color:var(--accent-2)}
+  .ni-icon{width:16px;height:16px;flex:none;color:var(--muted);display:grid;place-items:center}
+  .ni-icon svg{width:15px;height:15px}
+  .nav-item .badge{margin-left:auto;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--muted);background:var(--panel-2);border-radius:99px;padding:1px 7px}
+  .nav-item .badge.hot{color:#fff;background:var(--accent)}
+  .nav-item .badge.amber{color:#0d1117;background:var(--warn)}
+  .nav-item.soon{opacity:.45;cursor:default}
+  .nav-item .soon-tag{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--faint);border:1px solid var(--border-2);border-radius:4px;padding:1px 5px}
 
-  /* === Sticky header === */
-  .app-header {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    background: rgba(15, 17, 23, 0.92);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--border);
-  }
-  .header-inner {
-    max-width: var(--content-max);
-    margin: 0 auto;
-    padding: 10px clamp(12px, 2vw, 32px);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    min-height: var(--header-h);
-  }
-  .header-left { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
-  .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .app-title {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--text);
-  }
-  .header-counts {
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .header-counts .hc {
-    display: inline-flex;
-    gap: 6px;
-    align-items: baseline;
-    cursor: pointer;
-    padding: 2px 4px;
-    border-radius: 4px;
-    transition: background 0.1s;
-  }
-  .header-counts .hc:hover { background: var(--panel-2); }
-  .header-counts .hc .n {
-    font-weight: 700;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-    font-size: 13px;
-  }
-  .header-counts .hc.ar .n { color: var(--err); }
-  .header-counts .hc.reply .n { color: var(--warn); }
-  .header-counts .hc.zero { opacity: 0.4; }
+  .side-section{padding:6px 16px 2px;flex:none}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0;color:var(--text-2);font-size:12.5px}
+  .switch{width:28px;height:16px;border-radius:99px;background:var(--raise);position:relative;cursor:pointer;border:none;flex:none;transition:background .15s}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:#98a0b3;transition:transform .15s,background .15s}
+  .switch.on{background:var(--accent)}
+  .switch.on::after{transform:translateX(12px);background:#fff}
+  .watchlist{display:flex;flex-wrap:wrap;gap:5px;padding:6px 0 4px}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-2);background:var(--panel);border:1px solid var(--border-2);border-radius:99px;padding:2.5px 8px}
+  .chip .x{cursor:pointer;color:var(--faint);font-size:12px;line-height:1}
+  .chip .x:hover{color:var(--err)}
+  .chip-add{display:inline-flex;align-items:center;font-size:11px;color:var(--muted);background:none;border:1px dashed var(--border-2);border-radius:99px;padding:2.5px 9px;cursor:pointer}
+  .chip-add:hover{color:var(--accent-2);border-color:var(--accent)}
 
-  /* Status pill */
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    border-radius: 16px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    font-size: 12px;
-    color: var(--ok);
-  }
-  .status-pill.err { color: var(--err); }
-  .status-pill .tick-count {
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    margin-left: 2px;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: currentColor;
-    box-shadow: 0 0 8px currentColor;
-    animation: pulse 2s infinite;
-  }
-  @keyframes pulse { 50% { opacity: 0.3; } }
+  .side-foot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:7px;flex:none}
+  .foot-row{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+  .live-dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(63,185,80,.5);animation:pulse 2.2s infinite;flex:none}
+  .live-dot.dead{background:var(--err);animation:none}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,185,80,.45)}70%{box-shadow:0 0 0 6px rgba(63,185,80,0)}100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}}
 
-  /* === App shell (sidebar + content grid) === */
-  .app-shell {
-    max-width: var(--content-max);
-    margin: 0 auto;
-    padding: 16px clamp(12px, 2vw, 32px) 32px;
-    display: grid;
-    gap: 20px;
-    grid-template-columns: 1fr;
-  }
-  @media (min-width: 1100px) {
-    .app-shell {
-      grid-template-columns: minmax(240px, 280px) 1fr;
-      gap: 24px;
-    }
-  }
-  @media (min-width: 1400px) {
-    .app-shell {
-      grid-template-columns: 300px 1fr;
-    }
-  }
+  /* ============ MAIN COLUMN ============ */
+  .main{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .topbar{display:flex;align-items:center;gap:14px;padding:0 18px;height:50px;border-bottom:1px solid var(--border);background:var(--bg);flex:none}
+  .view-title{font-size:14.5px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+  .view-sub{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+  .top-counts{display:flex;gap:4px;margin-left:6px}
+  .count-pill{display:inline-flex;align-items:baseline;gap:5px;font-size:11px;color:var(--muted);padding:3px 8px;border-radius:6px;cursor:default}
+  .count-pill b{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text)}
+  .count-pill.ar b{color:var(--err)} .count-pill.appr b{color:var(--warn)} .count-pill.reply b{color:var(--info)} .count-pill.watch b{color:var(--purple)}
+  .top-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .src-pills{display:flex;gap:4px}
+  .src-pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;color:var(--text-2);background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:3px 9px}
+  .src-pill .d{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+  .src-pill.down .d{background:var(--err)}
+  .src-pill.down{color:var(--err);border-color:rgba(248,81,73,.4)}
+  .src-pill.soon{opacity:.45}
+  .src-pill.soon .d{background:var(--faint)}
 
-  /* === Sidebar === */
-  .sidebar {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    min-width: 0;
-  }
-  @media (min-width: 1100px) {
-    .sidebar {
-      position: sticky;
-      top: calc(var(--header-h) + 16px);
-      align-self: start;
-      max-height: calc(100vh - var(--header-h) - 32px);
-      overflow-y: auto;
-    }
-  }
-  .sidebar-section {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
-  }
-  .sidebar-section h3 {
-    margin: 0 0 10px;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    font-weight: 600;
-  }
-  .sidebar-section .hint {
-    margin: 0 0 10px;
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.4;
-  }
+  .content{display:grid;grid-template-columns:minmax(0,1fr) 400px;min-height:0;flex:1}
+  .content.single{grid-template-columns:minmax(0,1fr)}
+  .list-pane{overflow-y:auto;min-height:0;border-right:1px solid var(--border)}
+  .content.single .list-pane{border-right:none}
+  .detail-pane{overflow-y:auto;min-height:0;background:var(--bg2)}
 
-  /* Sidebar counts list */
-  .counts-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .counts-list li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 13px;
-    padding: 7px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-  .counts-list li:hover { background: var(--panel-2); }
-  .counts-list li .label { color: var(--text); }
-  .counts-list li .n {
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-    font-size: 13px;
-  }
-  .counts-list li.ar .label,
-  .counts-list li.ar .n { color: var(--err); }
-  .counts-list li.reply .label,
-  .counts-list li.reply .n { color: var(--warn); }
-  .counts-list li.zero { opacity: 0.45; }
+  /* ============ LIST (Option A density: single-line compact rows) ============ */
+  .group-hd{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;padding:7px 18px 5px;font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);background:linear-gradient(var(--bg) 82%,rgba(13,17,23,0))}
+  .group-hd .gcount{font-variant-numeric:tabular-nums;color:var(--faint);font-weight:600;letter-spacing:0}
+  .group-hd .gdot{width:7px;height:7px;border-radius:2px;flex:none}
+  .row{display:flex;align-items:center;gap:8px;padding:5px 14px 5px 13px;min-height:33px;cursor:pointer;border-left:3px solid transparent;position:relative}
+  .row:hover{background:var(--panel)}
+  .row.sel{background:var(--accent-dim);border-left-color:var(--accent)}
+  .row.handled{opacity:.5}
+  .row .ubar{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:2px}
+  .u-urgent .ubar{background:var(--err)} .u-high .ubar{background:var(--warn)} .u-med .ubar{background:var(--info)} .u-low .ubar{background:var(--faint)}
+  .src-glyph{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:800;flex:none;letter-spacing:.02em}
+  .sg-gmail{background:var(--err-dim);color:#ff8f88} .sg-slack{background:var(--purple-dim);color:var(--purple)}
+  .sg-freshservice{background:var(--ok-dim);color:#6fd382} .sg-otter{background:var(--info-dim);color:#79b8ff}
+  .row-sender{font-weight:600;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;max-width:148px}
+  .row-subj{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+  .row-subj .snip{color:var(--muted)}
+  .tag{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:1px 5px;flex:none}
+  .tag-approval{background:var(--warn-dim);color:var(--warn)} .tag-action{background:var(--err-dim);color:#ff8f88}
+  .tag-fyi{background:var(--info-dim);color:#79b8ff} .tag-travel{background:var(--purple-dim);color:var(--purple)}
+  .tag-noise{background:var(--panel-2);color:var(--faint)} .tag-other{background:var(--panel-2);color:var(--muted)}
+  .wflag{color:var(--purple);font-size:10px;flex:none}
+  .lnflag{font-family:var(--mono);font-size:9px;color:var(--accent-2);background:var(--accent-dim);border-radius:4px;padding:1px 4px;flex:none}
+  .row-time{font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap;flex:none;min-width:30px;text-align:right}
+  .empty{padding:60px 20px;text-align:center;color:var(--muted)}
+  .empty .big{font-size:28px;margin-bottom:8px}
 
-  /* Urgent filter row — sits above the bucket list, toggles a global filter */
-  .counts-list li.urgent-filter {
-    border: 1px solid rgba(248, 81, 73, 0.45);
-    background: rgba(248, 81, 73, 0.06);
-    margin-bottom: 8px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    font-size: 12px;
-  }
-  .counts-list li.urgent-filter .label,
-  .counts-list li.urgent-filter .n { color: var(--err); }
-  .counts-list li.urgent-filter:hover { background: rgba(248, 81, 73, 0.14); }
-  .counts-list li.urgent-filter.active {
-    background: rgba(248, 81, 73, 0.22);
-    box-shadow: inset 0 0 0 1px var(--err);
-  }
-  .counts-list li.urgent-filter.zero { opacity: 0.4; }
+  /* ============ DETAIL PANE ============ */
+  .dp{padding:18px 20px 30px}
+  .dp-eyebrow{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .dp-subject{font-size:15px;font-weight:700;line-height:1.35;letter-spacing:-.01em;margin:0 0 4px;overflow-wrap:anywhere}
+  .dp-meta{font-size:12px;color:var(--muted);margin-bottom:10px}
+  .dp-meta b{color:var(--text-2);font-weight:600}
+  .why{display:flex;gap:8px;align-items:baseline;font-size:12px;color:var(--text-2);background:var(--accent-dim);border:1px solid rgba(94,106,210,.3);border-radius:7px;padding:7px 10px;margin-bottom:12px;line-height:1.45}
+  .why .k{color:var(--accent-2);font-weight:700;text-transform:uppercase;letter-spacing:.07em;font-size:10px;white-space:nowrap;flex:none}
+  .kv{display:grid;grid-template-columns:92px 1fr;gap:5px 12px;font-size:12px;padding:10px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:14px}
+  .kv .k{color:var(--faint)} .kv .v{color:var(--text-2);overflow-wrap:anywhere}
+  .dp-body{font-size:12.8px;line-height:1.6;color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:18px}
+  .dp-actions{display:flex;flex-wrap:wrap;gap:7px}
+  .btn{border:none;border-radius:7px;padding:7px 13px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;line-height:1.2;text-decoration:none}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn-primary{background:var(--accent);color:#fff} .btn-primary:hover:not(:disabled){background:var(--accent-2)}
+  .btn-ok{background:var(--ok);color:#04120a} .btn-ok:hover:not(:disabled){filter:brightness(1.12)}
+  .btn-danger{background:var(--err-dim);color:var(--err);border:1px solid rgba(248,81,73,.4)} .btn-danger:hover:not(:disabled){background:rgba(248,81,73,.22)}
+  .btn-ghost{background:var(--panel-2);color:var(--text-2);border:1px solid var(--border-2)} .btn-ghost:hover:not(:disabled){background:var(--raise);color:var(--text)}
+  .dp-placeholder{padding:70px 26px;text-align:center;color:var(--faint);font-size:12.5px;line-height:2}
+  .dp-placeholder .k{display:inline-block;border:1px solid var(--border-2);border-radius:4px;padding:1px 5px;font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--panel)}
+  .sec-title{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+  .sum-box{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:9px 11px;font-size:12.2px;line-height:1.55;color:var(--text-2);margin-bottom:12px}
+  .sum-box .lb{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:3px}
 
-  .filter-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    cursor: pointer;
-    user-select: none;
-    padding: 4px 0;
-  }
-  .filter-row input { accent-color: var(--accent); }
+  /* ============ APPROVALS ============ */
+  .dryrun{display:flex;align-items:center;gap:10px;background:var(--warn-dim);border-bottom:1px solid rgba(210,153,34,.4);color:var(--warn);padding:8px 18px;font-size:12px;font-weight:600;flex:none;flex-wrap:wrap}
+  .dryrun .dr-badge{font-size:9.5px;font-weight:800;letter-spacing:.1em;background:var(--warn);color:#1a1405;border-radius:4px;padding:2px 7px;flex:none}
+  .dryrun .dr-note{color:rgba(210,170,80,.85);font-weight:500}
+  .appr-card{margin:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--panel);cursor:pointer;padding:12px 14px}
+  .appr-card:hover{border-color:var(--border-2)}
+  .appr-card.sel{border-color:var(--accent);background:var(--accent-dim)}
+  .appr-l1{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .appr-to{font-weight:650;font-size:12.5px;overflow-wrap:anywhere}
+  .appr-via{font-size:10.5px;color:var(--muted)}
+  .appr-time{margin-left:auto;font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums;flex:none}
+  .appr-preview{font-size:12px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .draft-box{background:var(--panel);border:1px solid var(--border-2);border-radius:9px;padding:13px 14px;font-size:12.6px;line-height:1.65;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:6px}
+  .draft-tools{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:11px;color:var(--faint)}
+  .evi{border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:7px;background:var(--panel)}
+  .evi-l1{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--text-2);flex-wrap:wrap}
+  .evi-cite{font-family:var(--mono);font-size:9.5px;color:var(--accent-2);background:var(--accent-dim);border-radius:4px;padding:1px 5px;flex:none;overflow-wrap:anywhere}
+  .evi-q{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:4px;border-left:2px solid var(--border-2);padding-left:8px;white-space:pre-wrap;overflow-wrap:anywhere}
 
-  /* Watchlist */
-  #watchlist-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-  }
-  .watch-chip {
-    background: rgba(94, 106, 210, 0.18);
-    color: var(--accent);
-    padding: 4px 6px 4px 10px;
-    border-radius: 14px;
-    font-size: 12px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .watch-x {
-    background: transparent;
-    border: none;
-    color: var(--accent);
-    cursor: pointer;
-    font-size: 14px;
-    line-height: 1;
-    padding: 0 2px;
-  }
-  .watch-x:hover { color: var(--err); }
-  #watch-input {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 4px 10px;
-    font-size: 12px;
-    outline: none;
-    min-width: 110px;
-    flex: 1;
-  }
-  #watch-input:focus { border-color: var(--accent); }
-  .watch-add-form {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    flex: 1;
-    min-width: 140px;
-  }
+  /* ============ SYSTEM ============ */
+  .sys-wrap{padding:18px;overflow-y:auto}
+  .sys-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-bottom:8px}
+  .sys-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 15px}
+  .sys-card.down{border-color:rgba(248,81,73,.45)}
+  .sys-hd{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .sys-hd .nm{font-weight:700;font-size:13px}
+  .sys-hd .st{margin-left:auto;font-size:10px;font-weight:700;letter-spacing:.06em;border-radius:99px;padding:2px 8px}
+  .st-ok{background:var(--ok-dim);color:var(--ok)} .st-down{background:var(--err-dim);color:var(--err)} .st-off{background:var(--panel-2);color:var(--faint)}
+  .st-warn{background:var(--warn-dim);color:var(--warn)}
+  .sys-kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:11.5px}
+  .sys-kv .k{color:var(--faint)} .sys-kv .v{color:var(--text-2);text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  .sys-kv .v.err{color:var(--err)}
 
-  .meta { color: var(--muted); font-size: 12px; line-height: 1.5; word-break: break-word; }
+  /* ============ KEYMAP BAR (Option A) ============ */
+  #keymap{flex:none;height:26px;display:flex;align-items:center;gap:2px;padding:0 10px;background:var(--bg2);border-top:1px solid var(--border);overflow:hidden;white-space:nowrap}
+  #keymap .km{display:flex;align-items:center;gap:5px;padding:0 9px;border-right:1px solid var(--border);height:15px}
+  #keymap .km:last-child{border-right:none}
+  #keymap kbd{font-family:var(--mono);font-size:9.5px;color:var(--text-2);background:var(--panel-2);border:1px solid var(--border-2);border-radius:4px;padding:0 4px;line-height:14px}
+  #keymap .lbl{color:var(--faint);font-size:10px;letter-spacing:.5px}
 
-  /* === Content === */
-  .content { min-width: 0; }
-
-  #error-block {
-    background: rgba(248, 81, 73, 0.08);
-    color: var(--err);
-    padding: 12px 14px;
-    border: 1px solid rgba(248, 81, 73, 0.25);
-    border-radius: 8px;
-    margin: 0 0 12px;
-    font-size: 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-
-  .empty {
-    color: var(--muted);
-    font-size: 14px;
-    text-align: center;
-    padding: 48px 16px;
-    background: var(--panel);
-    border: 1px dashed var(--border);
-    border-radius: 10px;
-  }
-
-  /* === Buckets === */
-  .bucket {
-    margin-bottom: 18px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--panel);
-    overflow: hidden;
-    /* Account for both sticky app-header and sticky bucket-head when scrolled-to */
-    scroll-margin-top: calc(var(--header-h) + 12px);
-  }
-  .bucket-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
-    cursor: pointer;
-    user-select: none;
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
-    /* NOT sticky — sticky behavior caused items to scroll under the header,
-       hiding the top item's subject/from/badges. Sidebar "At a glance" counts
-       provide orientation when scrolling. */
-  }
-  .item {
-    /* When jumping to a specific item, account for both sticky bars */
-    scroll-margin-top: calc(var(--header-h) + 60px);
-  }
-  .bucket.is-empty .bucket-head { border-bottom: none; opacity: 0.55; }
-  .bucket.collapsed .bucket-head { border-bottom: none; }
-  .bucket-head h2 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text);
-  }
-  .bucket-chevron {
-    display: inline-flex;
-    width: 12px;
-    height: 12px;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    color: var(--muted);
-    transition: transform 0.15s;
-  }
-  .bucket.collapsed .bucket-chevron { transform: rotate(-90deg); }
-  .bucket-count {
-    margin-left: auto;
-    font-size: 12px;
-    color: var(--muted);
-    background: var(--panel-2);
-    padding: 3px 12px;
-    border-radius: 12px;
-    font-variant-numeric: tabular-nums;
-    font-weight: 700;
-  }
-
-  .bucket[data-kind="ar"] .bucket-head h2 { color: var(--err); }
-  .bucket[data-kind="ar"] .bucket-count { background: rgba(248, 81, 73, 0.18); color: var(--err); }
-  .bucket[data-kind="ar"] { border-color: rgba(248, 81, 73, 0.35); }
-  .bucket[data-kind="approval"] .bucket-head h2 { color: #c084fc; }
-  .bucket[data-kind="approval"] .bucket-count { background: rgba(192, 132, 252, 0.18); color: #c084fc; }
-  .bucket[data-kind="approval"] { border-color: rgba(192, 132, 252, 0.4); }
-  .bucket[data-kind="reply"] .bucket-head h2 { color: var(--warn); }
-  .bucket[data-kind="reply"] .bucket-count { background: rgba(210, 153, 34, 0.18); color: var(--warn); }
-
-  /* Approval-needed item: violet accent (mirrors AR/reply hero treatment) */
-  .item.approval-emphasis {
-    background: rgba(192, 132, 252, 0.06);
-    border-left: 4px solid #c084fc;
-    padding-left: 18px;
-  }
-  .item.approval-emphasis:hover { background: rgba(192, 132, 252, 0.1); }
-  .item.approval-emphasis .subject { font-weight: 600; }
-
-  .section-empty-line {
-    font-size: 12px;
-    color: var(--muted);
-    padding: 10px 16px;
-    font-style: italic;
-  }
-
-  /* === Items === */
-  .item {
-    padding: 14px 16px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    position: relative;
-    transition: background 0.1s;
-  }
-  .item:first-child { border-top: 0; }
-  .item:hover { background: rgba(255, 255, 255, 0.02); }
-
-  .item .row1 {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-  }
-  .item .subject {
-    color: var(--text);
-    font-weight: 500;
-    font-size: 16px;
-    line-height: 1.35;
-    flex: 1;
-    min-width: 0;
-    text-decoration: none;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    word-break: break-word;
-  }
-  .item .subject:hover { color: var(--accent); }
-  .item .date {
-    color: var(--muted);
-    font-size: 12px;
-    flex-shrink: 0;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-
-  .item .row2 {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .item .from {
-    font-size: 13px;
-    color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-    flex: 1;
-  }
-  .item .from b { color: var(--text); font-weight: 500; }
-
-  .item .badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
-  }
-
-  .badge {
-    background: var(--panel-2);
-    padding: 3px 9px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 500;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    white-space: nowrap;
-    line-height: 1.4;
-  }
-  .badge.role { background: rgba(94, 106, 210, 0.2); color: var(--accent); font-weight: 600; letter-spacing: 0.04em; }
-  .badge.owe { background: rgba(248, 81, 73, 0.18); color: var(--err); font-weight: 600; }
-  .badge.dates { background: rgba(210, 153, 34, 0.18); color: var(--warn); }
-  .badge.urg-low { background: rgba(107, 114, 134, 0.22); color: var(--muted); }
-  .badge.urg-med { background: rgba(94, 106, 210, 0.22); color: var(--accent); }
-  .badge.urg-high { background: rgba(210, 153, 34, 0.25); color: var(--warn); font-weight: 600; }
-  .badge.urg-urgent { background: rgba(248, 81, 73, 0.28); color: var(--err); font-weight: 700; letter-spacing: 0.04em; }
-  .badge.elt { background: rgba(248, 81, 73, 0.18); color: var(--err); font-weight: 700; letter-spacing: 0.04em; }
-  .badge.team { background: rgba(94, 106, 210, 0.22); color: var(--accent); font-weight: 700; letter-spacing: 0.04em; }
-  .badge.internal { background: rgba(63, 185, 80, 0.18); color: var(--ok); font-weight: 600; letter-spacing: 0.04em; }
-  .badge.filtered { background: rgba(107, 114, 134, 0.16); color: var(--muted); font-style: italic; }
-  .badge.tag-approval { background: rgba(210, 153, 34, 0.18); color: var(--warn); }
-  .badge.tag-action { background: rgba(94, 106, 210, 0.18); color: var(--accent); }
-  .badge.tag-fyi { background: var(--panel-2); color: var(--muted); }
-  .badge.tag-noise { background: var(--panel-2); color: var(--muted); opacity: 0.55; }
-  .badge.tag-travel { background: rgba(34, 178, 178, 0.18); color: #2bc4c4; font-weight: 600; }
-  .badge.reply-needed { background: rgba(248, 81, 73, 0.22); color: var(--err); font-weight: 600; }
-  .badge.action-req {
-    background: var(--err);
-    color: white;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    box-shadow: 0 0 10px rgba(248, 81, 73, 0.55);
-    padding: 3px 10px;
-  }
-  .badge.score-err { background: rgba(248, 81, 73, 0.12); color: var(--err); opacity: 0.75; }
-  .badge.watchlist {
-    background: rgba(63, 185, 80, 0.18);
-    color: var(--ok);
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-
-  /* Action-required item: hero treatment */
-  .item.action-required {
-    background: rgba(248, 81, 73, 0.07);
-    border-left: 4px solid var(--err);
-    padding-left: 18px;
-  }
-  .item.action-required:hover { background: rgba(248, 81, 73, 0.11); }
-  .item.action-required .subject {
-    font-size: 17px;
-    font-weight: 600;
-    color: #ffffff;
-  }
-
-  /* Reply-needed: amber accent */
-  .item.reply-emphasis {
-    border-left: 4px solid var(--warn);
-    padding-left: 18px;
-  }
-
-  /* FYI/Noise muting */
-  .bucket[data-kind="fyi"] .item { opacity: 0.92; }
-  .item.noise { opacity: 0.55; }
-
-  .item .summary {
-    color: var(--text);
-    font-size: 13px;
-    opacity: 0.85;
-    line-height: 1.5;
-    padding-top: 2px;
-  }
-  .item .reply-line {
-    color: var(--err);
-    font-size: 13px;
-    opacity: 0.95;
-    line-height: 1.45;
-    padding-top: 2px;
-  }
-  .item .score-error-line {
-    color: var(--err);
-    font-size: 11px;
-    opacity: 0.85;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    word-break: break-word;
-    padding-top: 2px;
-  }
-
-  .item .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding-top: 6px;
-  }
-  .archive-btn, .wiki-btn, .block-btn, .ignore-btn, .linear-btn, .dismiss-slack-btn {
-    background: transparent;
-    color: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 14px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.1s;
-    line-height: 1.2;
-  }
-  .archive-btn:hover, .wiki-btn:hover, .ignore-btn:hover, .linear-btn:hover, .dismiss-slack-btn:hover {
-    background: var(--panel-2);
-    color: var(--text);
-    border-color: var(--muted);
-  }
-  .wiki-btn.in-wiki {
-    border-color: rgba(94, 106, 210, 0.5);
-    color: var(--accent);
-    background: rgba(94, 106, 210, 0.08);
-  }
-  .linear-btn.linked {
-    border-color: rgba(94, 106, 210, 0.5);
-    color: var(--accent);
-    background: rgba(94, 106, 210, 0.08);
-    text-decoration: none;
-    display: inline-block;
-  }
-  .linear-btn.linked:hover {
-    background: rgba(94, 106, 210, 0.18);
-  }
-  .linear-btn.pending {
-    border-color: rgba(255, 184, 0, 0.5);
-    color: #ffb800;
-    background: rgba(255, 184, 0, 0.08);
-    cursor: progress;
-  }
-  /* Close-the-Linear-issue button — sits next to the linked → IDENT chip. */
-  .linear-close-btn {
-    background: transparent;
-    color: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.1s;
-    line-height: 1.2;
-    margin-left: 4px;
-  }
-  .linear-close-btn:hover {
-    background: rgba(63, 185, 80, 0.12);
-    color: var(--ok, #3fb950);
-    border-color: rgba(63, 185, 80, 0.45);
-  }
-  .linear-close-btn:disabled { opacity: 0.7; cursor: progress; }
-  .linear-close-btn.pending {
-    border-color: rgba(255, 184, 0, 0.5);
-    color: #ffb800;
-    background: rgba(255, 184, 0, 0.08);
-    cursor: progress;
-  }
-  .linear-closed {
-    display: inline-block;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--ok, #3fb950);
-    padding: 6px 8px;
-    margin-left: 2px;
-    opacity: 0.9;
-  }
-  .wiki-btn:disabled, .block-btn:disabled, .ignore-btn:disabled, .archive-btn:disabled, .linear-btn:disabled, .dismiss-slack-btn:disabled {
-    opacity: 0.7;
-    cursor: progress;
-  }
-  .block-btn:hover {
-    background: rgba(248, 81, 73, 0.12);
-    color: var(--err);
-    border-color: rgba(248, 81, 73, 0.4);
-  }
-  .item.action-required .archive-btn,
-  .item.action-required .wiki-btn,
-  .item.action-required .block-btn,
-  .item.action-required .ignore-btn,
-  .item.action-required .linear-btn,
-  .item.action-required .dismiss-slack-btn {
-    padding: 7px 16px;
-  }
-  .ignore-btn:hover {
-    background: rgba(255, 184, 0, 0.10);
-    color: #ffb800;
-    border-color: rgba(255, 184, 0, 0.4);
-  }
-
-  /* === Per-source counter strip (header) === */
-  .source-counts {
-    display: inline-flex;
-    gap: 0;
-    margin-right: 8px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-    font-size: 12px;
-    background: var(--panel);
-  }
-  .source-counts .src-pill {
-    padding: 4px 10px;
-    color: var(--muted);
-    border-right: 1px solid var(--border);
-    cursor: pointer;
-    user-select: none;
-    transition: all 0.1s;
-  }
-  .source-counts .src-pill:last-child { border-right: 0; }
-  .source-counts .src-pill:hover { background: var(--panel-2); color: var(--text); }
-  .source-counts .src-pill.active {
-    background: rgba(94, 106, 210, 0.18);
-    color: var(--accent);
-  }
-  .source-counts .src-pill .src-name { font-weight: 600; }
-  .source-counts .src-pill .src-n { padding-left: 6px; opacity: 0.85; }
-  .source-counts .src-pill .src-h {
-    color: var(--ok);
-    padding-left: 1px;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* === Source badge on each item === */
-  .badge.src-gmail {
-    background: rgba(160, 130, 80, 0.16);
-    color: #d2a85c;
-    border: 1px solid rgba(160, 130, 80, 0.4);
-  }
-  .badge.src-slack {
-    background: rgba(116, 80, 168, 0.18);
-    color: #b08aff;
-    border: 1px solid rgba(116, 80, 168, 0.5);
-  }
-  .badge.src-freshservice {
-    background: rgba(80, 130, 180, 0.18);
-    color: #6fb3ff;
-    border: 1px solid rgba(80, 130, 180, 0.45);
-  }
-  .badge.src-otter {
-    background: rgba(0, 168, 145, 0.18);
-    color: #4dd6bf;
-    border: 1px solid rgba(0, 168, 145, 0.45);
-  }
-  .badge.src-channel {
-    background: rgba(60, 60, 70, 0.4);
-    color: var(--muted);
-    border: 1px solid var(--border);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-
-  /* === Compact connection pills (replace giant banners) === */
-  .conn-pills {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-  .conn-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 14px;
-    font-size: 11px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    color: var(--muted);
-    cursor: pointer;
-    text-decoration: none;
-    transition: all 0.15s;
-    white-space: nowrap;
-  }
-  .conn-pill:hover { background: var(--panel-2); }
-  .conn-pill .conn-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-  .conn-pill.ok { color: var(--ok); border-color: rgba(63, 185, 80, 0.35); }
-  .conn-pill.ok .conn-dot { background: var(--ok); box-shadow: 0 0 6px rgba(63, 185, 80, 0.6); }
-  .conn-pill.err { color: var(--err); border-color: rgba(248, 81, 73, 0.55); }
-  .conn-pill.err .conn-dot { background: var(--err); box-shadow: 0 0 6px rgba(248, 81, 73, 0.6); animation: pulse 2s infinite; }
-  .conn-pill.warn { color: var(--warn); border-color: rgba(210, 153, 34, 0.5); }
-  .conn-pill.warn .conn-dot { background: var(--warn); box-shadow: 0 0 6px rgba(210, 153, 34, 0.6); }
-
-  /* === Bulk select (gmail + slack only) === */
-  .item .row1 { position: relative; }
-  .item .select-cb {
-    position: absolute;
-    left: -28px;
-    top: 4px;
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-    accent-color: var(--accent);
-    opacity: 0;
-    transition: opacity 0.1s;
-  }
-  .item:hover .select-cb,
-  .item.selected .select-cb,
-  body.bulk-mode .item .select-cb { opacity: 1; }
-  .item.selected {
-    background: rgba(94, 106, 210, 0.08);
-    box-shadow: inset 3px 0 0 var(--accent);
-  }
-  .item.selected:hover { background: rgba(94, 106, 210, 0.12); }
-
-  /* Floating bulk-action bar (bottom-center) */
-  #bulk-bar {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%) translateY(80px);
-    z-index: 9998;
-    background: var(--panel);
-    border: 1px solid var(--accent);
-    border-radius: 12px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 4px rgba(94, 106, 210, 0.12);
-    padding: 10px 14px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 13px;
-    transition: transform 0.18s ease-out, opacity 0.18s;
-    opacity: 0;
-    pointer-events: none;
-  }
-  #bulk-bar.visible {
-    transform: translateX(-50%) translateY(0);
-    opacity: 1;
-    pointer-events: auto;
-  }
-  #bulk-bar .bulk-count {
-    color: var(--accent);
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-  }
-  #bulk-bar .bulk-meta { color: var(--muted); }
-  #bulk-bar button {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  #bulk-bar button:hover { background: var(--panel-2); border-color: var(--muted); }
-  #bulk-bar button.bulk-primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: white;
-  }
-  #bulk-bar button.bulk-primary:hover { background: var(--accent-hover); }
-  #bulk-bar button:disabled { opacity: 0.6; cursor: progress; }
-
-  /* === Hero (Phase 1.7) — top-of-canvas strip for the most-pressing items === */
-  #hero {
-    margin: 0 0 18px 0;
-    padding: 14px 16px 12px;
-    background: linear-gradient(180deg, rgba(94, 106, 210, 0.10), rgba(94, 106, 210, 0.03));
-    border: 1px solid rgba(94, 106, 210, 0.45);
-    border-radius: 10px;
-  }
-  #hero .hero-head {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
-  #hero .hero-date-select {
-    margin-left: auto;
-    background: var(--panel);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 3px 6px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-  #hero .hero-date-select:hover { border-color: var(--muted); }
-  #hero .hero-title {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-  #hero .hero-sub {
-    font-size: 12px;
-    color: var(--muted);
-  }
-  #hero .hero-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
-    margin-bottom: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  #hero .hero-card:last-child { margin-bottom: 0; }
-  #hero .hero-card.urgent { border-color: rgba(248, 81, 73, 0.5); }
-  /* Aging cards keep the urgent red border but get a subtle warning-amber
-     tint so Garth can distinguish "LLM said urgent" from "this has been
-     sitting too long". */
-  #hero .hero-card.aging {
-    background: linear-gradient(180deg, rgba(210, 153, 34, 0.10), var(--panel));
-    border-color: rgba(210, 153, 34, 0.55);
-  }
-  #hero .hero-card.urgent.aging {
-    /* If both apply (rare — LLM urgent AND aged), the red urgent border wins. */
-    border-color: rgba(248, 81, 73, 0.6);
-  }
-  #hero .hero-card.snoozed { opacity: 0.55; }
-  #hero .hero-row1 {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-  #hero .hero-card .subject {
-    flex: 1;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text);
-    text-decoration: none;
-    line-height: 1.3;
-  }
-  #hero .hero-card .subject:hover { color: var(--accent); }
-  #hero .hero-card .date {
-    font-size: 12px;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-  #hero .hero-row2 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  #hero .hero-card .badges {
-    display: inline-flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  #hero .hero-suggested {
-    background: rgba(94, 106, 210, 0.10);
-    border-left: 3px solid var(--accent);
-    padding: 8px 10px;
-    border-radius: 4px;
-    font-size: 13px;
-    line-height: 1.45;
-    color: var(--text);
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  #hero .hero-summary {
-    font-size: 13px;
-    line-height: 1.4;
-    color: var(--text);
-  }
-  #hero .hero-summary .action-tail {
-    color: var(--muted);
-    font-style: italic;
-  }
-  #hero .hero-actions {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  #hero .hero-actions button,
-  #hero .hero-actions a {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 5px 10px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  #hero .hero-actions button:hover,
-  #hero .hero-actions a:hover { background: var(--panel-2); border-color: var(--muted); }
-  #hero .hero-actions .linear-btn.linked {
-    background: rgba(94, 106, 210, 0.18);
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-  #hero .hero-more {
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  #hero .hero-more a {
-    color: var(--accent);
-    text-decoration: none;
-    cursor: pointer;
-  }
-  #hero .hero-more a:hover { text-decoration: underline; }
-  .badge.handled {
-    background: rgba(63, 185, 80, 0.18);
-    color: var(--ok);
-    font-weight: 600;
-  }
-  .badge.snoozed {
-    background: rgba(210, 153, 34, 0.18);
-    color: var(--warn);
-    font-weight: 600;
-  }
-
-  /* === Toast stack (bottom-right, used by Linear undo + create result) === */
-  #toast-stack {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 9999;
-    pointer-events: none;
-  }
-  .toast {
-    pointer-events: auto;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 14px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    font-size: 13px;
-    min-width: 280px;
-    max-width: 360px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    animation: toast-in 0.18s ease-out;
-  }
-  @keyframes toast-in {
-    from { transform: translateX(20px); opacity: 0; }
-    to   { transform: translateX(0); opacity: 1; }
-  }
-  .toast.pending { border-color: rgba(255, 184, 0, 0.5); }
-  .toast.success { border-color: rgba(94, 106, 210, 0.5); }
-  .toast.err     { border-color: rgba(248, 81, 73, 0.5); }
-  .toast .toast-text { flex: 1; line-height: 1.35; color: var(--text); }
-  .toast .toast-text .sub { color: var(--muted); font-size: 11px; padding-top: 2px; }
-  .toast .toast-text a { color: var(--accent); text-decoration: none; }
-  .toast .toast-text a:hover { text-decoration: underline; }
-  .toast button.toast-action {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .toast button.toast-action:hover { background: var(--panel-2); border-color: var(--muted); }
-  .toast button.toast-close {
-    background: transparent;
-    color: var(--muted);
-    border: 0;
-    cursor: pointer;
-    font-size: 16px;
-    padding: 0 4px;
-  }
-
-  /* === Contacts slide-over panel (Phase 1.9) === */
-  #contacts-panel {
-    position: fixed;
-    inset: 0;
-    z-index: 200;
-    pointer-events: none;
-  }
-  #contacts-panel .cp-backdrop {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    pointer-events: auto;
-    opacity: 0;
-    transition: opacity 0.18s;
-  }
-  #contacts-panel:not([hidden]) .cp-backdrop { opacity: 1; }
-  #contacts-panel .cp-pane {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: clamp(360px, 38vw, 520px);
-    background: var(--panel);
-    border-left: 1px solid var(--border);
-    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
-    display: flex;
-    flex-direction: column;
-    pointer-events: auto;
-    transform: translateX(100%);
-    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  #contacts-panel:not([hidden]) .cp-pane { transform: translateX(0); }
-  #contacts-panel .cp-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  #contacts-panel .cp-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
-  #contacts-panel .cp-meta { color: var(--muted); font-size: 12px; flex: 1; }
-  #contacts-panel .cp-close {
-    background: transparent;
-    color: var(--muted);
-    border: 0;
-    font-size: 22px;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0 6px;
-  }
-  #contacts-panel .cp-close:hover { color: var(--text); background: transparent; }
-  #contacts-panel .cp-controls {
-    display: flex;
-    gap: 8px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  #contacts-panel .cp-controls input,
-  #contacts-panel .cp-controls select {
-    background: var(--panel-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 13px;
-  }
-  #contacts-panel .cp-controls input { flex: 1; }
-  #contacts-panel .cp-controls input:focus,
-  #contacts-panel .cp-controls select:focus { outline: 1px solid var(--accent); }
-  #contacts-panel .cp-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 4px 0;
-  }
-  #contacts-panel .cp-empty {
-    padding: 28px 16px;
-    color: var(--muted);
-    text-align: center;
-    font-size: 13px;
-  }
-  #contacts-panel .cp-row {
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    transition: background 0.1s;
-  }
-  #contacts-panel .cp-row:hover { background: var(--panel-2); }
-  #contacts-panel .cp-row.expanded { background: rgba(94, 106, 210, 0.08); }
-  #contacts-panel .cp-row .cp-row-top {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  #contacts-panel .cp-row .cp-name {
-    font-weight: 600;
-    color: var(--text);
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  #contacts-panel .cp-row .cp-name.empty { color: var(--muted); font-style: italic; font-weight: 400; }
-  #contacts-panel .cp-row .cp-counts {
-    display: inline-flex;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-  #contacts-panel .cp-row .cp-count {
-    padding: 2px 7px;
-    border-radius: 10px;
-    background: var(--panel-2);
-    color: var(--muted);
-    border: 1px solid var(--border);
-    font-variant-numeric: tabular-nums;
-  }
-  #contacts-panel .cp-row .cp-count.open { color: var(--text); }
-  #contacts-panel .cp-row .cp-count.owes {
-    background: rgba(248, 81, 73, 0.18);
-    color: var(--err);
-    border-color: rgba(248, 81, 73, 0.45);
-  }
-  #contacts-panel .cp-row .cp-count.handled {
-    background: rgba(63, 185, 80, 0.14);
-    color: var(--ok);
-    border-color: rgba(63, 185, 80, 0.4);
-  }
-  #contacts-panel .cp-row .cp-sub {
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 4px;
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    align-items: baseline;
-  }
-  #contacts-panel .cp-row .cp-email {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 11px;
-  }
-  #contacts-panel .cp-row .cp-source-badges {
-    display: inline-flex;
-    gap: 4px;
-  }
-  #contacts-panel .cp-drillin {
-    margin-top: 8px;
-    padding: 6px 0 2px;
-    border-top: 1px dashed var(--border);
-  }
-  #contacts-panel .cp-drillin .cp-item {
-    padding: 6px 0;
-    font-size: 12px;
-    line-height: 1.4;
-    border-top: 1px solid rgba(255,255,255,0.04);
-  }
-  #contacts-panel .cp-drillin .cp-item:first-child { border-top: 0; }
-  #contacts-panel .cp-drillin .cp-item-row1 {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-  #contacts-panel .cp-drillin .cp-item-subject {
-    flex: 1;
-    color: var(--text);
-    text-decoration: none;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  #contacts-panel .cp-drillin .cp-item-subject:hover { color: var(--accent); }
-  #contacts-panel .cp-drillin .cp-item-date { color: var(--muted); font-size: 11px; flex-shrink: 0; }
-  #contacts-panel .cp-drillin .cp-item-actions {
-    margin-top: 4px;
-    display: flex;
-    gap: 6px;
-  }
-  #contacts-panel .cp-drillin .cp-item-actions button,
-  #contacts-panel .cp-drillin .cp-item-actions a {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 2px 7px;
-    font-size: 11px;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  #contacts-panel .cp-drillin .cp-item-actions button:hover,
-  #contacts-panel .cp-drillin .cp-item-actions a:hover { background: var(--panel-2); border-color: var(--muted); }
-
-  /* === Responsive tightening === */
-  @media (max-width: 700px) {
-    .header-counts { display: none; }
-    .item { padding: 12px 14px; }
-    .item.action-required, .item.reply-emphasis { padding-left: 16px; }
-    .item .subject { font-size: 15px; }
-    .item.action-required .subject { font-size: 16px; }
-    .bucket-head { padding: 10px 12px; }
-    .app-title { font-size: 18px; }
-  }
-  @media (max-width: 480px) {
-    .item .actions { flex-direction: row; }
-    .archive-btn, .wiki-btn, .block-btn { flex: 1; min-width: 80px; padding: 8px 10px; text-align: center; }
-  }
-  /* ── Thread grouping: a multi-message Gmail thread collapses to one card ── */
-  .thread-card .thread-toggle {
-    background: none; border: none; color: var(--muted); cursor: pointer;
-    padding: 0 6px 0 0; font-size: 0.95em; line-height: 1;
-  }
-  .thread-card .thread-chevron { display: inline-block; transition: transform 0.12s ease; }
-  .thread-card.expanded .row1 .thread-chevron { transform: rotate(0deg); }
-  .thread-card:not(.expanded) .row1 .thread-chevron { transform: rotate(-90deg); }
-  .thread-pill {
-    font-size: 0.72rem; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
-    background: rgba(45,162,187,0.16); color: var(--accent, #2da2bb);
-    border: 1px solid rgba(45,162,187,0.35);
-  }
-  .thread-children {
-    margin: 8px 0 2px 14px; padding-left: 12px;
-    border-left: 2px solid var(--border, #2a2f3a);
-    display: flex; flex-direction: column; gap: 8px;
-  }
-  .thread-children .item { background: rgba(255,255,255,0.02); }
+  @media (max-width:1360px){ .view-sub{display:none} }
+  @media (max-width:1180px){ .content{grid-template-columns:minmax(0,1fr) 360px} .top-counts .count-pill:not(.ar):not(.appr){display:none} }
+  @media (max-width:980px){
+    .app{grid-template-columns:190px 1fr}
+    .content{grid-template-columns:minmax(0,46%) minmax(0,54%)}
+    .src-pills .src-pill{padding:3px 6px;font-size:0} .src-pills .src-pill .d{margin:0}
+    .row-sender{max-width:100px}
+  }
+  .toast{position:fixed;bottom:40px;left:50%;transform:translateX(-50%) translateY(calc(100% + 60px));background:var(--raise);border:1px solid var(--border-2);color:var(--text);font-size:12.5px;font-weight:600;border-radius:9px;padding:9px 16px;box-shadow:0 8px 30px rgba(0,0,0,.5);transition:transform .22s ease,visibility 0s .22s;z-index:99;max-width:70vw;visibility:hidden}
+  .toast.show{transform:translateX(-50%) translateY(0);visibility:visible;transition:transform .22s ease}
+  .toast.err{border-color:rgba(248,81,73,.5);color:#ffb3ae}
 </style>
 </head>
 <body>
+<div class="shell">
+<div class="app">
 
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">H</div><div class="name">Haven</div>
+      <span class="env" id="env-badge" hidden>DRY-RUN</span>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-view="inbox">
+        <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 9.5h3.2l1 2h4.6l1-2h3.2M2.6 3.5h10.8l1.1 6v3a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1v-3l1.1-6z"/></svg></span>
+        Inbox <span class="badge hot" id="badge-inbox">–</span>
+      </button>
+      <button class="nav-item" data-view="approvals">
+        <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.8l5.5 2.4v3.4c0 3.2-2.3 5.6-5.5 6.6-3.2-1-5.5-3.4-5.5-6.6V4.2L8 1.8z"/><path d="M5.6 8l1.7 1.7L10.6 6.4"/></svg></span>
+        Approvals <span class="badge amber" id="badge-appr">–</span>
+      </button>
+      <button class="nav-item" data-view="people">
+        <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5.7" cy="5.4" r="2.4"/><path d="M1.6 13.4c.5-2.3 2.1-3.6 4.1-3.6s3.6 1.3 4.1 3.6"/><circle cx="11.5" cy="5.8" r="1.9"/><path d="M11 9.9c1.8.1 3 1.2 3.4 3"/></svg></span>
+        People
+      </button>
+      <button class="nav-item" data-view="system">
+        <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.5 8h3l1.5-4 2.5 8 1.5-4h4.5"/></svg></span>
+        System
+      </button>
+      <button class="nav-item soon" title="Ships in Phase 2">
+        <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></span>
+        JIRA <span class="soon-tag">SOON</span>
+      </button>
+    </nav>
 
-  <header class="app-header">
-    <div class="header-inner">
-      <div class="header-left">
-        <h1 class="app-title">Haven</h1>
-        <div class="conn-pills" id="conn-pills">
-          <a id="conn-gmail" class="conn-pill" href="/oauth/authorize" title="Gmail"><span class="conn-dot"></span><span>Gmail</span></a>
-          <span id="conn-slack" class="conn-pill" title="Slack"><span class="conn-dot"></span><span>Slack</span></span>
-          <span id="conn-freshservice" class="conn-pill" title="Freshservice"><span class="conn-dot"></span><span>FS</span></span>
-          <span id="conn-otter" class="conn-pill" title="Otter.ai"><span class="conn-dot"></span><span>Otter</span></span>
-        </div>
-        <div class="header-counts" id="header-counts"></div>
+    <div class="nav-label" style="padding-left:16px">Filters</div>
+    <div class="side-section">
+      <div class="toggle-row">Hide noise <button class="switch on" id="sw-noise"></button></div>
+      <div class="toggle-row">Hide handled <button class="switch on" id="sw-handled"></button></div>
+    </div>
+
+    <div class="nav-label" style="padding-left:16px">Watchlist</div>
+    <div class="side-section">
+      <div class="watchlist" id="watchlist"><button class="chip-add" id="chip-add">+ add</button></div>
+    </div>
+
+    <div class="side-foot">
+      <div class="foot-row"><span class="live-dot dead" id="live-dot"></span> <span id="live-txt">SSE connecting…</span></div>
+      <div class="foot-row"><span id="foot-counts">—</span></div>
+    </div>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <div class="view-title" id="view-title">Inbox</div>
+        <div class="view-sub" id="view-sub">Action required across all sources</div>
       </div>
-      <div class="header-right">
-        <div class="status-pill" id="status">
-          <span class="dot"></span>
-          <span id="status-label">connecting…</span>
-          <span class="tick-count" id="counter">—</span>
-        </div>
-        <div class="source-counts" id="source-counts" title="Per-source item counts"></div>
-        <button id="poll-btn" class="btn-secondary" title="Fetch new items from Gmail and Slack. Shift+Click to force re-fetch (ignores dedup).">Poll now</button>
-        <button id="contacts-btn" class="btn-secondary" title="Open the Contacts panel — every person who has touched a cached item, deduped across sources.">Contacts</button>
-        <button id="archive-noise-btn" class="btn-secondary" title="Archive every cached Gmail item tagged 'noise' (removes INBOX label — non-destructive, recoverable from All Mail).">Archive noise</button>
-        <button id="clear-slack-btn" class="btn-secondary" title="Wipe every cached Slack item from Haven. Slack itself is not modified. Use when DMs/mentions clutter the view; next poll will re-fetch any still-unread.">Clear Slack</button>
+      <div class="top-counts">
+        <span class="count-pill ar" title="Action required"><b id="cnt-ar">–</b> AR</span>
+        <span class="count-pill appr" title="Pending draft approvals"><b id="cnt-appr">–</b> Approvals</span>
+        <span class="count-pill reply" title="Reply needed"><b id="cnt-reply">–</b> Reply</span>
+        <span class="count-pill watch" title="Watchlist matches"><b id="cnt-watch">–</b> Watch</span>
+      </div>
+      <div class="top-right">
+        <div class="src-pills" id="src-pills"></div>
       </div>
     </div>
-  </header>
 
-  <div id="gmail-panel" class="app-shell" hidden>
-    <aside class="sidebar">
-      <section class="sidebar-section">
-        <h3>At a glance</h3>
-        <ul class="counts-list" id="sidebar-counts"></ul>
-      </section>
+    <div class="dryrun" id="dryrun-banner" hidden>
+      <span class="dr-badge">DRY-RUN</span>
+      Outbound sends are simulated — Approve logs the send, nothing leaves Haven.
+      <span class="dr-note">Flip send mode in .env to go live.</span>
+    </div>
 
-      <section class="sidebar-section">
-        <h3>Filters</h3>
-        <label class="filter-row" title="Hides items the LLM tagged as noise. Items remain in your Gmail inbox; this only filters the Haven view.">
-          <input type="checkbox" id="hide-noise" checked> Hide noise
-        </label>
-        <label class="filter-row" title="Hides items you've marked done OR captured to Linear. They stay in cache so you can toggle them back on.">
-          <input type="checkbox" id="hide-handled" checked> Hide handled
-        </label>
-      </section>
-
-      <section class="sidebar-section" id="watchlist-panel" hidden>
-        <h3>Watchlist</h3>
-        <p class="hint">Keywords that auto-keep matching emails (whole-word, case-insensitive in subject).</p>
-        <div id="watchlist-chips"></div>
-      </section>
-
-      <section class="sidebar-section">
-        <h3>Last poll</h3>
-        <div class="meta" id="gmail-meta">—</div>
-      </section>
-    </aside>
-
-    <main class="content">
-      <pre id="error-block" hidden></pre>
-      <section id="hero" hidden></section>
-      <div id="items"></div>
-      <div class="empty" id="items-empty">No items yet — click "Poll now" to fetch from Gmail.</div>
-    </main>
+    <div class="content" id="content">
+      <div class="list-pane" id="list-pane"></div>
+      <div class="detail-pane" id="detail-pane"></div>
+    </div>
   </div>
+</div>
 
-  <div id="bulk-bar">
-    <span class="bulk-meta"><span class="bulk-count" id="bulk-count">0</span> selected</span>
-    <button id="bulk-process-btn" class="bulk-primary" title="Archive Gmail items, dismiss Slack items">Process</button>
-    <button id="bulk-cancel-btn" title="Clear selection (Esc)">Cancel</button>
-  </div>
-
-  <div id="contacts-panel" hidden>
-    <div class="cp-backdrop"></div>
-    <aside class="cp-pane" role="dialog" aria-label="Contacts">
-      <header class="cp-head">
-        <h2>Contacts</h2>
-        <span class="cp-meta" id="cp-meta">—</span>
-        <button class="cp-close" id="cp-close" title="Close (Esc)">×</button>
-      </header>
-      <div class="cp-controls">
-        <input type="search" id="cp-search" placeholder="Search by name, email, company, or domain…" autocomplete="off">
-        <select id="cp-sort" title="Sort order">
-          <option value="last_seen">Recent activity</option>
-          <option value="open">Most open items</option>
-          <option value="owes">Most owed replies</option>
-          <option value="name">Name (A→Z)</option>
-        </select>
-      </div>
-      <div class="cp-body" id="cp-body">
-        <div class="cp-empty">Loading contacts…</div>
-      </div>
-    </aside>
-  </div>
-
-  <div id="toast-stack"></div>
+<!-- ===== KEYMAP BAR ===== -->
+<div id="keymap"></div>
+</div>
+<div class="toast" id="toast"></div>
 
 <script>
-  const counter = document.getElementById("counter");
-  const status = document.getElementById("status");
-  const statusLabel = document.getElementById("status-label");
-  const gmailPanel = document.getElementById("gmail-panel");
-  const itemsEl = document.getElementById("items");
-  const itemsEmpty = document.getElementById("items-empty");
-  const heroEl = document.getElementById("hero");
-  // Delegate change events for the hero date-window dropdown — the element is
-  // re-rendered each tick, so a direct listener on it would be lost.
-  heroEl.addEventListener("change", (e) => {
-    const tgt = e.target.closest("#hero-date-window");
-    if (!tgt) return;
-    setHeroDateWindow(tgt.value);
-  });
-  const gmailMeta = document.getElementById("gmail-meta");
-  const pollBtn = document.getElementById("poll-btn");
-  const archiveNoiseBtn = document.getElementById("archive-noise-btn");
-  const hideNoiseEl = document.getElementById("hide-noise");
-  const hideHandledEl = document.getElementById("hide-handled");
-  const errorBlock = document.getElementById("error-block");
-  const watchlistPanel = document.getElementById("watchlist-panel");
-  const watchlistChips = document.getElementById("watchlist-chips");
-  const headerCountsEl = document.getElementById("header-counts");
-  const sidebarCountsEl = document.getElementById("sidebar-counts");
-
-  // Bucket collapse state — persists across re-renders.
-  const bucketCollapsed = { ar: false, approval: false, reply: false, important: false, fyi: false, noise: false };
-  const threadExpanded = new Set();  // thread_ids currently expanded in the bucket view
-
-  function showError(text) {
-    errorBlock.textContent = text;
-    errorBlock.hidden = false;
+'use strict';
+/* ===================== API HELPER =====================
+   Single place to add an Authorization header later. */
+const AUTH_TOKEN = '';   // e.g. 'Bearer <token>' — added to every call when set
+async function api(path, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  if (AUTH_TOKEN) headers['Authorization'] = AUTH_TOKEN;
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if (!res.ok) {
+    let msg = '';
+    try { msg = (await res.json()).detail || ''; } catch (_) {}
+    throw new Error(msg || (res.status + ' ' + res.statusText));
   }
-  function clearError() {
-    errorBlock.hidden = true;
-    errorBlock.textContent = "";
+  return res.json();
+}
+
+/* ===================== STATE ===================== */
+const SOURCES = ['gmail', 'slack', 'freshservice', 'otter'];
+const SRC = {
+  gmail:        { g: 'GM', label: 'Gmail' },
+  slack:        { g: 'SL', label: 'Slack' },
+  freshservice: { g: 'FS', label: 'Freshservice' },
+  otter:        { g: 'OT', label: 'Otter.ai' },
+};
+const state = {
+  view: 'inbox',
+  items: { gmail: [], slack: [], freshservice: [], otter: [] },   // normalized
+  loaded: { gmail: false, slack: false, freshservice: false, otter: false },
+  approvals: { drafts: [], dry_run: false },
+  auth: {},              // source -> status payload (or {error})
+  watchlist: [],
+  llm: null, health: null,
+  hideNoise: true, hideHandled: true,
+  selKey: null,          // inbox selection: "source|msg_id"
+  selDraft: null,        // approvals selection: draft id
+  sse: { live: false, lastEvent: 0 },
+};
+
+/* ===================== HELPERS ===================== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function toast(msg, isErr) {
+  const t = $('#toast');
+  t.textContent = msg; t.classList.toggle('err', !!isErr); t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), isErr ? 4000 : 2200);
+}
+function glyph(k) {
+  const s = SRC[k] || { g: '??', label: k };
+  return `<span class="src-glyph sg-${esc(k)}" title="${esc(s.label)}">${s.g}</span>`;
+}
+function nowS() { return Date.now() / 1000; }
+function itemTs(raw) {
+  const t = Date.parse(raw.date || '');
+  if (!isNaN(t) && t > 0) return t / 1000;
+  return Number(raw.cached_at) || 0;
+}
+function age(ts) {
+  if (!ts) return '';
+  const d = Math.max(0, nowS() - ts);
+  if (d < 3600) return Math.max(1, Math.round(d / 60)) + 'm';
+  if (d < 86400) return Math.round(d / 3600) + 'h';
+  return Math.round(d / 86400) + 'd';
+}
+function fmtEpoch(sec) {
+  if (!sec) return '—';
+  return new Date(sec * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+const URG_ORDER = ['urgent', 'high', 'med', 'low'];
+function normUrg(u) {
+  u = String(u || '').toLowerCase();
+  if (u === 'medium') u = 'med';
+  return URG_ORDER.includes(u) ? u : 'low';
+}
+const KNOWN_TAGS = ['approval', 'action', 'fyi', 'travel', 'noise'];
+function normalize(source, raw) {
+  return {
+    source,
+    id: raw.msg_id,
+    key: source + '|' + raw.msg_id,
+    sender: raw.sender_name || raw.sender || raw.sender_email || raw.channel_name || SRC[source].label,
+    subject: raw.subject || raw.summary || raw.snippet || '(no subject)',
+    snippet: raw.snippet || raw.summary || '',
+    tag: String(raw.tag || '').toLowerCase(),
+    urg: normUrg(raw.urgency),
+    ts: itemTs(raw),
+    raw,
+  };
+}
+function tagClass(tag) { return KNOWN_TAGS.includes(tag) ? 'tag-' + tag : 'tag-other'; }
+
+function allItems() {
+  return SOURCES.flatMap(s => state.items[s]);
+}
+function isSnoozed(it) { return Number(it.raw.snooze_until || 0) > nowS(); }
+function visibleItems() {
+  return allItems().filter(it =>
+    !isSnoozed(it)
+    && !(state.hideNoise && it.tag === 'noise')
+    && !(state.hideHandled && it.raw.handled_at)
+  );
+}
+function orderedVisible() {
+  const v = visibleItems();
+  const out = [];
+  for (const u of URG_ORDER) out.push(...v.filter(i => i.urg === u).sort((a, b) => b.ts - a.ts));
+  return out;
+}
+function findItem(key) { return allItems().find(i => i.key === key) || null; }
+function selectedItem() { return state.selKey ? findItem(state.selKey) : null; }
+
+/* Option B's "Why now" — derived from real payload fields only. Empty → omitted. */
+function whyNow(it) {
+  const r = it.raw, parts = [];
+  if (r.watchlist_match) parts.push('watchlist hit: "' + r.watchlist_match + '"');
+  if (r.is_priority_approval) parts.push('blocks spend — approval chain stops at you');
+  if (r.is_elt) parts.push('ELT sender');
+  else if (r.is_team) parts.push('team sender');
+  if (r.sla_breached) parts.push('SLA breached');
+  else if (r.sla_at_risk) parts.push('SLA at risk');
+  if (r.reply_needed) parts.push(r.reply_reason ? r.reply_reason : 'reply needed — you own the next turn');
+  if (!parts.length && r.tag === 'approval') parts.push('tagged approval · urgency ' + it.urg);
+  return parts.slice(0, 3).join(' · ');
+}
+
+/* ===================== DATA FETCH ===================== */
+async function fetchItems(source) {
+  try {
+    const data = await api(`/api/agents/${source}/items`);
+    state.items[source] = (data.items || []).map(r => normalize(source, r));
+    state.loaded[source] = true;
+  } catch (e) {
+    state.loaded[source] = true;
+    console.warn(`fetch ${source} items failed:`, e.message);
   }
+}
+async function fetchApprovals() {
+  try {
+    state.approvals = await api('/api/approvals');
+  } catch (e) { console.warn('approvals fetch failed:', e.message); }
+}
+async function fetchAuth() {
+  await Promise.all(SOURCES.map(async s => {
+    try { state.auth[s] = await api(`/api/auth/${s}/status`); }
+    catch (e) { state.auth[s] = { authed: false, error: e.message }; }
+  }));
+}
+async function fetchWatchlist() {
+  try { state.watchlist = (await api('/api/agents/gmail/watchlist')).keywords || []; }
+  catch (e) { console.warn('watchlist fetch failed:', e.message); }
+}
+async function fetchMeta() {
+  try { state.health = await api('/api/health'); } catch (e) { state.health = { status: 'error', error: e.message }; }
+  try { state.llm = await api('/api/llm/status'); } catch (e) { state.llm = null; }
+}
 
-  // ─── Watchlist ────────────────────────────────────────
-  function renderWatchlist(keywords) {
-    const chips = (keywords || []).map(kw => `
-      <span class="watch-chip">${escapeHtml(kw)}<button class="watch-x" data-kw="${escapeHtml(kw)}" title="Remove">×</button></span>
-    `).join("");
-    const form = `
-      <form class="watch-add-form" id="watch-add-form">
-        <input type="text" id="watch-input" placeholder="+ keyword" autocomplete="off" />
-        <button type="submit" class="btn-secondary" style="padding: 4px 10px; font-size: 12px;">Add</button>
-      </form>`;
-    watchlistChips.innerHTML = chips + form;
-    watchlistPanel.hidden = false;
-  }
+/* Debounced per-source refetch, driven by SSE events. */
+const _refetchTimers = {};
+function scheduleRefetch(source) {
+  clearTimeout(_refetchTimers[source]);
+  _refetchTimers[source] = setTimeout(async () => {
+    await fetchItems(source);
+    render();
+  }, 400);
+}
 
-  async function loadWatchlist() {
-    try {
-      const r = await fetch("/api/agents/gmail/watchlist");
-      if (!r.ok) return;
-      const j = await r.json();
-      renderWatchlist(j.keywords);
-    } catch (e) { /* ignore */ }
-  }
+/* ===================== NAV / CHROME ===================== */
+const VIEWMETA = {
+  inbox: ['Inbox', 'Action required across all sources'],
+  approvals: ['Approvals', 'Agent-drafted replies awaiting your review — one approval, one send'],
+  people: ['People', 'Per-person rollup: open work + requests to you'],
+  system: ['System', 'Source health, auth, LLM runtime and send mode'],
+};
+const VIEW_KEYS = ['inbox', 'approvals', 'people', 'system'];
+document.querySelectorAll('.nav-item[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+function setView(v) {
+  state.view = v;
+  document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.toggle('active', n.dataset.view === v));
+  render();
+}
 
-  watchlistChips.addEventListener("submit", async (e) => {
-    if (!e.target.id || e.target.id !== "watch-add-form") return;
-    e.preventDefault();
-    const input = document.getElementById("watch-input");
-    const kw = (input.value || "").trim();
-    if (!kw) return;
-    try {
-      const r = await fetch("/api/agents/gmail/watchlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: kw }),
-      });
-      if (!r.ok) {
-        const err = await r.text();
-        showError(`Add watchlist failed: ${err}`);
-        return;
-      }
-      const j = await r.json();
-      renderWatchlist(j.keywords);
-    } catch (err) {
-      showError(`Watchlist add error: ${err.message}`);
-    }
-  });
+$('#sw-noise').addEventListener('click', () => toggleFilter('noise'));
+$('#sw-handled').addEventListener('click', () => toggleFilter('handled'));
+function toggleFilter(which) {
+  if (which === 'noise') state.hideNoise = !state.hideNoise;
+  else state.hideHandled = !state.hideHandled;
+  $('#sw-noise').classList.toggle('on', state.hideNoise);
+  $('#sw-handled').classList.toggle('on', state.hideHandled);
+  toast(which === 'noise' ? (state.hideNoise ? 'Hiding noise' : 'Showing noise')
+                          : (state.hideHandled ? 'Hiding handled' : 'Showing handled'));
+  render();
+}
 
-  watchlistChips.addEventListener("click", async (e) => {
-    const x = e.target.closest(".watch-x");
-    if (!x) return;
-    e.preventDefault();
+/* Watchlist chips (wired to the gmail watchlist API) */
+function renderWatchlist() {
+  const w = $('#watchlist');
+  w.innerHTML = state.watchlist.map(k =>
+    `<span class="chip">${esc(k)} <span class="x" data-kw="${esc(k)}" title="Remove">×</span></span>`
+  ).join('') + '<button class="chip-add" id="chip-add">+ add</button>';
+  w.querySelectorAll('.x').forEach(x => x.addEventListener('click', async () => {
     const kw = x.dataset.kw;
     try {
-      const r = await fetch(`/api/agents/gmail/watchlist/${encodeURIComponent(kw)}`, {
-        method: "DELETE",
-      });
-      if (!r.ok) return;
-      const j = await r.json();
-      renderWatchlist(j.keywords);
-    } catch (err) { /* ignore */ }
+      const r = await api(`/api/agents/gmail/watchlist/${encodeURIComponent(kw)}`, { method: 'DELETE' });
+      state.watchlist = r.keywords || [];
+      renderWatchlist(); toast(`Removed "${kw}" from watchlist`);
+    } catch (e) { toast('Remove failed: ' + e.message, true); }
+  }));
+  $('#chip-add').addEventListener('click', async () => {
+    const kw = prompt('Watchlist keyword:');
+    if (!kw || !kw.trim()) return;
+    try {
+      const r = await api('/api/agents/gmail/watchlist', { method: 'POST', body: JSON.stringify({ keyword: kw.trim() }) });
+      state.watchlist = r.keywords || [];
+      renderWatchlist(); toast(`Watching "${kw.trim()}"`);
+    } catch (e) { toast('Add failed: ' + e.message, true); }
   });
+}
 
-  loadWatchlist();
-  hideNoiseEl.addEventListener("change", () => renderItems());
-  if (hideHandledEl) hideHandledEl.addEventListener("change", () => renderItems());
+function renderChrome() {
+  const [t, s] = VIEWMETA[state.view];
+  $('#view-title').textContent = t; $('#view-sub').textContent = s;
+  $('#dryrun-banner').hidden = !(state.view === 'approvals' && state.approvals.dry_run);
+  $('#content').classList.toggle('single', state.view === 'system' || state.view === 'people');
 
-  function removeFromRecent(msgId) {
-    const idx = recent.findIndex(i => i.msg_id === msgId);
-    if (idx >= 0) {
-      recent.splice(idx, 1);
-      renderItems();
-    }
+  // badges + counts
+  const vis = visibleItems();
+  $('#badge-inbox').textContent = vis.length;
+  $('#badge-inbox').classList.toggle('hot', vis.length > 0);
+  const pend = state.approvals.drafts.length;
+  $('#badge-appr').textContent = pend;
+  $('#badge-appr').classList.toggle('amber', pend > 0);
+  $('#cnt-ar').textContent = vis.filter(i => i.raw.action_required).length;
+  $('#cnt-appr').textContent = pend;
+  $('#cnt-reply').textContent = vis.filter(i => i.raw.reply_needed).length;
+  $('#cnt-watch').textContent = vis.filter(i => i.raw.watchlist_match).length;
+
+  // env badge (dry-run vs live)
+  const env = $('#env-badge');
+  env.hidden = false;
+  env.textContent = state.approvals.dry_run ? 'DRY-RUN' : 'LIVE';
+  env.classList.toggle('live', !state.approvals.dry_run);
+
+  // source pills
+  $('#src-pills').innerHTML = SOURCES.map(s2 => {
+    const a = state.auth[s2];
+    const ok = a && a.authed;
+    return `<span class="src-pill ${ok ? '' : 'down'}" title="${esc(SRC[s2].label)} — ${ok ? 'authorized' : 'not authorized'}"><span class="d"></span>${esc(SRC[s2].label)}</span>`;
+  }).join('') + `<span class="src-pill soon"><span class="d"></span>JIRA</span>`;
+
+  // footer counts
+  const total = allItems().length;
+  $('#foot-counts').textContent = `${total} cached · ${vis.length} shown · ${pend} drafts pending`;
+
+  renderKeymap();
+}
+
+/* ===================== KEYMAP BAR ===================== */
+function km(keys, lbl) {
+  return `<span class="km">${keys.map(k => `<kbd>${esc(k)}</kbd>`).join('')}<span class="lbl">${esc(lbl)}</span></span>`;
+}
+function renderKeymap() {
+  let h = '';
+  if (state.view === 'inbox') {
+    h = km(['j', 'k'], 'navigate') + km(['e'], 'done') + km(['s'], 'snooze 1h') + km(['S'], 'snooze tmrw')
+      + km(['c'], '→ linear') + km(['d'], 'draft reply') + km(['n', 'h'], 'noise / handled') + km(['1–4'], 'views');
+  } else if (state.view === 'approvals') {
+    h = km(['j', 'k'], 'navigate') + km(['a'], 'approve') + km(['r'], 'reject') + km(['1–4'], 'views');
+  } else {
+    h = km(['1–4'], 'views');
   }
+  $('#keymap').innerHTML = h;
+}
 
-  async function archiveOne(msgId, btn) {
-    if (btn) { btn.disabled = true; btn.textContent = "…"; }
-    try {
-      const r = await fetch(`/api/agents/gmail/items/${encodeURIComponent(msgId)}/archive`, { method: "POST" });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Archive failed:", err);
-        if (btn) { btn.disabled = false; btn.textContent = "Archive"; btn.style.color = "var(--err)"; }
-        return false;
-      }
-      removeFromRecent(msgId);
-      return true;
-    } catch (e) {
-      console.error("Archive error:", e);
-      if (btn) { btn.disabled = false; btn.textContent = "Archive"; }
-      return false;
-    }
+/* ===================== RENDER ===================== */
+function render() {
+  renderChrome();
+  if (state.view === 'inbox') renderInbox();
+  else if (state.view === 'approvals') renderApprovals();
+  else if (state.view === 'people') renderPeople();
+  else renderSystem();
+}
+
+/* ---------- INBOX ---------- */
+const GROUPS = [
+  { key: 'urgent', label: 'Urgent', dot: 'var(--err)' },
+  { key: 'high', label: 'High', dot: 'var(--warn)' },
+  { key: 'med', label: 'Medium', dot: 'var(--info)' },
+  { key: 'low', label: 'Low / FYI', dot: 'var(--faint)' },
+];
+function rowHTML(it) {
+  const r = it.raw;
+  return `<div class="row u-${it.urg} ${state.selKey === it.key ? 'sel' : ''} ${r.handled_at ? 'handled' : ''}" data-key="${esc(it.key)}">
+    <span class="ubar"></span>${glyph(it.source)}
+    <span class="row-sender">${esc(it.sender)}</span>
+    <span class="row-subj">${esc(it.subject)}${it.snippet && it.snippet !== it.subject ? ` <span class="snip">— ${esc(it.snippet)}</span>` : ''}</span>
+    ${r.watchlist_match ? `<span class="wflag" title="Watchlist: ${esc(r.watchlist_match)}">⚑</span>` : ''}
+    ${r.linear_identifier ? `<span class="lnflag" title="Captured to Linear">${esc(r.linear_identifier)}</span>` : ''}
+    <span class="tag ${tagClass(it.tag)}">${esc(it.tag || '—')}</span>
+    <span class="row-time">${age(it.ts)}</span>
+  </div>`;
+}
+function renderInbox() {
+  const vis = visibleItems();
+  let h = '';
+  for (const g of GROUPS) {
+    const items = vis.filter(i => i.urg === g.key).sort((a, b) => b.ts - a.ts);
+    if (!items.length) continue;
+    h += `<div class="group-hd"><span class="gdot" style="background:${g.dot}"></span>${g.label} <span class="gcount">${items.length}</span></div>`;
+    h += items.map(rowHTML).join('');
   }
-
-  async function dismissSlackOne(msgId, btn) {
-    // Mirrors archiveOne but hits the Slack DELETE endpoint. Slack itself isn't
-    // modified — we just drop the cached payload so it leaves the Haven view.
-    if (btn) { btn.disabled = true; btn.textContent = "…"; }
-    try {
-      const r = await fetch(`/api/agents/slack/items/${encodeURIComponent(msgId)}`, { method: "DELETE" });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Slack dismiss failed:", err);
-        if (btn) { btn.disabled = false; btn.textContent = "Dismiss"; btn.style.color = "var(--err)"; }
-        return false;
-      }
-      removeFromRecent(msgId);
-      return true;
-    } catch (e) {
-      console.error("Slack dismiss error:", e);
-      if (btn) { btn.disabled = false; btn.textContent = "Dismiss"; }
-      return false;
-    }
+  if (!h) {
+    const anyLoaded = SOURCES.some(s => state.loaded[s]);
+    h = anyLoaded
+      ? '<div class="empty"><div class="big">✓</div>Inbox zero. Nothing needs you.<br><span style="font-size:11.5px;color:var(--faint)">Adjust the noise / handled filters to see more.</span></div>'
+      : '<div class="empty">Loading items…</div>';
   }
-
-  async function archiveAllNoise() {
-    const noiseCount = recent.filter(i => i.tag === "noise").length;
-    if (noiseCount === 0) {
-      gmailMeta.textContent = "no noise items to archive";
-      return;
-    }
-    if (!confirm(`Archive ${noiseCount} noise items in Gmail? This removes the INBOX label — they remain in All Mail.`)) return;
-    archiveNoiseBtn.disabled = true;
-    archiveNoiseBtn.textContent = "Archiving…";
-    try {
-      const r = await fetch("/api/agents/gmail/archive-noise", { method: "POST" });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Bulk archive failed:", err);
-        gmailMeta.textContent = `archive failed (see console)`;
-        return;
-      }
-      const j = await r.json();
-      const archivedSet = new Set(j.archived || []);
-      for (let i = recent.length - 1; i >= 0; i--) {
-        if (archivedSet.has(recent[i].msg_id)) recent.splice(i, 1);
-      }
-      renderItems();
-      gmailMeta.textContent = `archived ${j.count} noise item${j.count === 1 ? "" : "s"} from inbox`;
-    } finally {
-      archiveNoiseBtn.disabled = false;
-      archiveNoiseBtn.textContent = "Archive noise";
-    }
+  $('#list-pane').innerHTML = h;
+  $('#list-pane').querySelectorAll('.row[data-key]').forEach(el =>
+    el.addEventListener('click', () => { state.selKey = el.dataset.key; render(); }));
+  renderItemDetail();
+}
+function kvRow(k, v) { return v ? `<span class="k">${esc(k)}</span><span class="v">${v}</span>` : ''; }
+function renderItemDetail() {
+  const dp = $('#detail-pane');
+  const it = selectedItem();
+  if (!it || !visibleItems().includes(it)) {
+    dp.innerHTML = `<div class="dp-placeholder">Select an item to see full context and actions.<br><br>
+      <span class="k">j</span> <span class="k">k</span> navigate &nbsp; <span class="k">e</span> done &nbsp; <span class="k">s</span> snooze &nbsp; <span class="k">c</span> linear &nbsp; <span class="k">d</span> draft</div>`;
+    return;
   }
+  const r = it.raw, s = SRC[it.source];
+  const why = whyNow(it);
+  const from = r.sender_email || r.channel_name || r.meeting_title || '';
+  const isSlack = it.source === 'slack';
+  const canThread = it.source === 'gmail' && r.thread_id;
+  const body = r.body_text || r.snippet || '';
+  const dl = r.deeplink ? `<a href="${esc(r.deeplink)}" target="_blank" rel="noopener">Open in ${esc(s.label)} ↗</a>` : '';
+  const linearV = r.linear_identifier
+    ? `<a href="${esc(r.linear_url || '#')}" target="_blank" rel="noopener">${esc(r.linear_identifier)}</a>${r.linear_state ? ' · ' + esc(r.linear_state) : ''}`
+    : '';
 
-  archiveNoiseBtn.addEventListener("click", archiveAllNoise);
+  dp.innerHTML = `<div class="dp">
+    <div class="dp-eyebrow">${glyph(it.source)}<span style="font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.label)}${from ? ' · ' + esc(from) : ''}</span><span class="tag ${tagClass(it.tag)}" style="margin-left:auto">${esc(it.tag || '—')}</span></div>
+    <h2 class="dp-subject">${esc(it.subject)}</h2>
+    <div class="dp-meta">From <b>${esc(it.sender)}</b> · ${age(it.ts)} ago · urgency <b style="text-transform:capitalize">${esc(it.urg)}</b>${r.handled_at ? ' · <b style="color:var(--ok)">handled</b>' : ''}</div>
+    ${why ? `<div class="why"><span class="k">Why now</span><span>${esc(why)}</span></div>` : ''}
+    <div class="kv">
+      ${kvRow('Source', esc(s.label))}
+      ${kvRow('Tag', esc(it.tag || '—'))}
+      ${kvRow('Watchlist', r.watchlist_match ? '⚑ ' + esc(r.watchlist_match) : '')}
+      ${kvRow('Reply', r.reply_needed ? 'needed' + (r.reply_reason ? ' — ' + esc(r.reply_reason) : '') : '')}
+      ${kvRow('Linear', linearV)}
+      ${kvRow('Thread', canThread && r.thread_message_count > 1 ? esc(r.thread_message_count + ' messages') : '')}
+      ${kvRow('Status', r.status_label ? esc(r.status_label) + (r.priority_label ? ' · ' + esc(r.priority_label) : '') : '')}
+      ${kvRow('Due', r.due_by ? esc(new Date(r.due_by).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) + (r.sla_breached ? ' · <b style="color:var(--err)">SLA breached</b>' : '') : '')}
+      ${kvRow('Link', dl)}
+    </div>
+    ${r.summary && r.summary !== it.subject ? `<div class="sum-box"><div class="lb">LLM summary</div>${esc(r.summary)}</div>` : ''}
+    ${r.suggested_action ? `<div class="sum-box"><div class="lb">Suggested action</div>${esc(r.suggested_action)}</div>` : ''}
+    ${body ? `<div class="dp-body">${esc(body)}</div>` : ''}
+    <div class="dp-actions">
+      ${r.handled_at
+        ? `<button class="btn btn-ghost" data-act="undone">↩ Unmark done</button>`
+        : `<button class="btn btn-ok" data-act="done">✓ Done</button>`}
+      ${canThread && !r.handled_at ? `<button class="btn btn-ghost" data-act="done-thread" title="Mark the whole Gmail thread done">✓ Done (thread)</button>` : ''}
+      <button class="btn btn-ghost" data-act="snooze1h">Snooze 1h</button>
+      <button class="btn btn-ghost" data-act="snoozetmrw">Tomorrow</button>
+      ${r.linear_id
+        ? `<a class="btn btn-ghost" href="${esc(r.linear_url || '#')}" target="_blank" rel="noopener">▤ Open in Linear</a>
+           ${r.linear_closed_at ? '' : `<button class="btn btn-ghost" data-act="linear-close">Close issue</button>`}`
+        : `<button class="btn btn-ghost" data-act="linear">▤ Capture to Linear</button>`}
+      <button class="btn btn-primary" data-act="draft" ${isSlack ? '' : 'disabled title="Draft agents for this source ship soon — Slack only for now"'}>✎ Draft reply${isSlack ? '' : ' (soon)'}</button>
+    </div>
+  </div>`;
+  dp.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => itemAction(it, b.dataset.act)));
+}
 
-  const clearSlackBtn = document.getElementById("clear-slack-btn");
-  async function clearAllSlack() {
-    const slackCount = recent.filter(i => sourceOf(i) === "slack").length;
-    if (slackCount === 0) {
-      gmailMeta.textContent = "no Slack items to clear";
-      return;
+/* ---------- ITEM ACTIONS (optimistic + API) ---------- */
+function pathId(id) { return encodeURIComponent(id); }
+async function itemAction(it, act) {
+  const r = it.raw, base = `/api/items/${it.source}/${pathId(it.id)}`;
+  try {
+    if (act === 'done') {
+      const prev = r.handled_at; r.handled_at = nowS(); render();          // optimistic
+      try { const res = await api(base + '/mark-done', { method: 'POST' }); r.handled_at = res.handled_at; toast('Marked done' + (res.archived_in_source ? ' — archived in Gmail' : '')); }
+      catch (e) { r.handled_at = prev; render(); throw e; }
+    } else if (act === 'undone') {
+      const prev = r.handled_at; delete r.handled_at; render();
+      try { await api(base + '/unmark-done', { method: 'POST' }); toast('Unmarked'); }
+      catch (e) { r.handled_at = prev; render(); throw e; }
+    } else if (act === 'done-thread') {
+      const res = await api(`/api/items/gmail/thread/${pathId(r.thread_id)}/mark-done`, { method: 'POST' });
+      for (const g of state.items.gmail) if (g.raw.thread_id === r.thread_id) g.raw.handled_at = res.handled_at;
+      toast(`Thread done — ${res.count} message${res.count === 1 ? '' : 's'} archived`); render();
+    } else if (act === 'snooze1h' || act === 'snoozetmrw') {
+      const preset = act === 'snooze1h' ? '1h' : 'tomorrow';
+      const prev = r.snooze_until; r.snooze_until = nowS() + 3600; render();  // optimistic hide
+      try { const res = await api(base + '/snooze', { method: 'POST', body: JSON.stringify({ preset }) }); r.snooze_until = res.snooze_until; toast(preset === '1h' ? 'Snoozed 1h' : 'Snoozed until tomorrow morning'); }
+      catch (e) { r.snooze_until = prev; render(); throw e; }
+    } else if (act === 'linear') {
+      toast('Creating Linear issue…');
+      const res = await api(base + '/linear', { method: 'POST' });
+      r.linear_id = res.linear_id; r.linear_url = res.linear_url; r.linear_identifier = res.linear_identifier;
+      toast(res.already_created ? `Already captured — ${res.linear_identifier}` : `Captured to Linear → ${res.linear_identifier}`);
+      render();
+    } else if (act === 'linear-close') {
+      const res = await api(base + '/linear/close', { method: 'POST' });
+      r.linear_closed_at = res.closed_at; r.linear_state = res.state_name;
+      toast(`${res.linear_identifier} → ${res.state_name || 'Done'}`); render();
+    } else if (act === 'draft') {
+      if (it.source !== 'slack') return;
+      toast('Running draft agent…');
+      const res = await api('/api/dispatch/run', { method: 'POST', body: JSON.stringify({ source: it.source, msg_id: it.id }) });
+      await fetchApprovals();
+      toast(`Draft #${res.draft_id} created — review in Approvals`); render();
     }
-    if (!confirm(`Clear ${slackCount} Slack item${slackCount === 1 ? "" : "s"} from Haven? Slack itself is unchanged. Next poll will re-fetch any still-unread.`)) return;
-    clearSlackBtn.disabled = true;
-    clearSlackBtn.textContent = "Clearing…";
-    try {
-      const r = await fetch("/api/agents/slack/clear-cache", { method: "POST" });
-      if (!r.ok) {
-        const err = await r.text();
-        showError(`POST /api/agents/slack/clear-cache → ${r.status}\n\n${err}`);
-        return;
-      }
-      const j = await r.json();
-      for (let i = recent.length - 1; i >= 0; i--) {
-        if (sourceOf(recent[i]) === "slack") recent.splice(i, 1);
-      }
-      renderItems();
-      gmailMeta.textContent = `cleared ${j.cleared || slackCount} Slack item${(j.cleared || slackCount) === 1 ? "" : "s"} from Haven`;
-    } finally {
-      clearSlackBtn.disabled = false;
-      clearSlackBtn.textContent = "Clear Slack";
-    }
+  } catch (e) { toast(act + ' failed: ' + e.message, true); }
+}
+
+/* ---------- APPROVALS ---------- */
+function draftTitle(d) {
+  return `${d.kind || 'draft'} → ${d.target || '—'}`;
+}
+function renderApprovals() {
+  const drafts = state.approvals.drafts;
+  if (state.selDraft == null || !drafts.some(d => d.id === state.selDraft)) state.selDraft = drafts.length ? drafts[0].id : null;
+  let h = `<div class="group-hd"><span class="gdot" style="background:var(--warn)"></span>Pending review <span class="gcount">${drafts.length}</span></div>`;
+  if (drafts.length) {
+    h += drafts.map(d => `<div class="appr-card ${state.selDraft === d.id ? 'sel' : ''}" data-id="${d.id}">
+      <div class="appr-l1">${SRC[d.kind] ? glyph(d.kind) : ''}<span class="appr-to">${esc(draftTitle(d))}</span><span class="appr-via">#${d.id}${d.job_id != null ? ' · job ' + d.job_id : ''}</span><span class="appr-time">${esc(d.created_at || '')}</span></div>
+      <div class="appr-preview">${esc(d.payload || '')}</div>
+    </div>`).join('');
+  } else {
+    h += '<div class="empty"><div class="big">✓</div>Approval queue clear — no drafts pending.<br><span style="font-size:11.5px;color:var(--faint)">Run "Draft reply" on a Slack item to generate one.</span></div>';
   }
-  clearSlackBtn.addEventListener("click", clearAllSlack);
+  $('#list-pane').innerHTML = h;
+  $('#list-pane').querySelectorAll('.appr-card').forEach(el =>
+    el.addEventListener('click', () => { state.selDraft = Number(el.dataset.id); render(); }));
+  renderApprDetail();
+}
+function renderApprDetail() {
+  const dp = $('#detail-pane');
+  const d = state.approvals.drafts.find(x => x.id === state.selDraft);
+  if (!d) { dp.innerHTML = '<div class="dp-placeholder">Select a draft to review its evidence and approve or reject.<br><br><span class="k">a</span> approve &nbsp; <span class="k">r</span> reject</div>'; return; }
+  const ev = Array.isArray(d.evidence) ? d.evidence : [];
+  dp.innerHTML = `<div class="dp">
+    <div class="dp-eyebrow">${SRC[d.kind] ? glyph(d.kind) : ''}<span style="font-size:11.5px;color:var(--muted)">draft #${d.id} · ${esc(d.kind || '')}${d.created_at ? ' · ' + esc(d.created_at) : ''}</span></div>
+    <h2 class="dp-subject">${esc(draftTitle(d))}</h2>
+    <div class="sec-title">Draft</div>
+    <div class="draft-box">${esc(d.payload || '')}</div>
+    <div class="draft-tools"><span>1 approval = 1 send · nothing sends without you</span><span>${(d.payload || '').length} chars</span></div>
+    <div class="sec-title">Evidence · ${ev.length} cited item${ev.length === 1 ? '' : 's'}</div>
+    ${ev.length ? ev.map(e => `<div class="evi"><div class="evi-l1"><span class="evi-cite">${esc(e.msg_id || '')}</span>${SRC[e.source] ? glyph(e.source) : ''}<span>${esc(e.source || '')}</span></div>${e.excerpt ? `<div class="evi-q">${esc(e.excerpt)}</div>` : ''}</div>`).join('')
+               : '<div style="font-size:11.5px;color:var(--faint)">No evidence attached to this draft.</div>'}
+    <div class="dp-actions" style="margin-top:18px">
+      <button class="btn btn-ok" data-appr="approve">✓ Approve${state.approvals.dry_run ? ' (dry-run)' : ' & send'}</button>
+      <button class="btn btn-danger" data-appr="reject">✕ Reject</button>
+      <button class="btn btn-ghost" disabled title="Draft editing API not built yet">✎ Edit before send — soon</button>
+    </div>
+    ${state.approvals.dry_run ? '<div style="margin-top:12px;font-size:11px;color:var(--warn)">⚠ DRY-RUN — Approve will log the send without transmitting.</div>' : ''}
+  </div>`;
+  dp.querySelectorAll('[data-appr]').forEach(b => b.addEventListener('click', () => approvalAction(d.id, b.dataset.appr)));
+}
+async function approvalAction(id, act) {
+  try {
+    if (act === 'approve') {
+      await api(`/api/approvals/${id}/approve`, { method: 'POST' });
+      toast(state.approvals.dry_run ? 'Approved — send simulated (dry-run)' : 'Approved — sent');
+    } else {
+      const reason = prompt('Reject reason (optional):') || '';
+      await api(`/api/approvals/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
+      toast('Rejected — draft discarded, source item kept');
+    }
+    await fetchApprovals();
+    render();
+  } catch (e) { toast(act + ' failed: ' + e.message, true); }
+}
 
-  // Per-item actions + bucket-head collapse (event delegation)
-  itemsEl.addEventListener("click", (e) => {
-    const cb = e.target.closest("input.select-cb");
-    if (cb) {
-      // Don't preventDefault — let the browser toggle the checkbox state naturally
-      const id = cb.dataset.msgId;
-      if (cb.checked) selectedItems.add(id); else selectedItems.delete(id);
-      const itemEl = cb.closest(".item");
-      if (itemEl) itemEl.classList.toggle("selected", cb.checked);
-      syncBulkBar();
-      e.stopPropagation(); // don't bubble to subject-link / bucket-head handlers
-      return;
-    }
-    const threadToggleBtn = e.target.closest(".thread-toggle");
-    if (threadToggleBtn) {
-      e.preventDefault(); e.stopPropagation();
-      const tid = threadToggleBtn.dataset.threadId;
-      if (tid) { if (threadExpanded.has(tid)) threadExpanded.delete(tid); else threadExpanded.add(tid); renderItems(); }
-      return;
-    }
-    const threadDoneBtn = e.target.closest(".thread-done-btn");
-    if (threadDoneBtn) {
-      e.preventDefault();
-      markThreadDone(threadDoneBtn.dataset.threadId, threadDoneBtn);
-      return;
-    }
-    const threadSnoozeBtn = e.target.closest(".thread-snooze-btn");
-    if (threadSnoozeBtn) {
-      e.preventDefault();
-      snoozeThread(threadSnoozeBtn.dataset.threadId, threadSnoozeBtn.dataset.preset || "1h", threadSnoozeBtn);
-      return;
-    }
-    const threadSubjectLink = e.target.closest(".thread-card a.subject[data-msg-id]");
-    if (threadSubjectLink) {
-      // Clicking a thread's subject opens it in Gmail. Plain click also clears the
-      // whole thread (open + archive, like single items); Shift+click = review only.
-      const card = threadSubjectLink.closest(".thread-card");
-      const tid = card && card.dataset.threadId;
-      if (!e.shiftKey && tid) markThreadDone(tid);
-      return; // let the browser open the link
-    }
-    const subjectLink = e.target.closest("a.subject[data-msg-id]");
-    if (subjectLink) {
-      const msgId = subjectLink.dataset.msgId;
-      const src = subjectLink.dataset.source;
-      // Shift+click = "review mode" — open in source app but keep visible in
-      // Haven so the user can come back and click "+ Wiki" / Archive after reading.
-      const reviewMode = e.shiftKey;
-      if (!reviewMode) {
-        if (src === "gmail" && msgId) {
-          archiveOne(msgId); // fire-and-forget; item disappears from view on success
-        } else if (src === "slack" && msgId) {
-          removeFromRecent(msgId);
-          fetch(`/api/agents/slack/items/${encodeURIComponent(msgId)}`, { method: "DELETE" }).catch(() => {});
-        }
-        // Freshservice: never auto-dismiss — tickets stay until closed in Freshservice
-      }
-      return; // let browser open the link normally
-    }
-    const archiveBtn = e.target.closest(".archive-btn");
-    if (archiveBtn) {
-      e.preventDefault();
-      const msgId = archiveBtn.dataset.msgId;
-      if (msgId) archiveOne(msgId, archiveBtn);
-      return;
-    }
-    const dismissSlackBtn = e.target.closest(".dismiss-slack-btn");
-    if (dismissSlackBtn) {
-      e.preventDefault();
-      const msgId = dismissSlackBtn.dataset.msgId;
-      if (msgId) dismissSlackOne(msgId, dismissSlackBtn);
-      return;
-    }
-    const wikiBtn = e.target.closest(".wiki-btn");
-    if (wikiBtn) {
-      e.preventDefault();
-      const msgId = wikiBtn.dataset.msgId;
-      if (msgId) addToWiki(msgId, wikiBtn);
-      return;
-    }
-    const blockBtn = e.target.closest(".block-btn");
-    if (blockBtn) {
-      e.preventDefault();
-      const msgId = blockBtn.dataset.msgId;
-      const sender = blockBtn.dataset.sender || "(unknown)";
-      const domainToo = e.shiftKey;
-      const promptText = domainToo
-        ? `Block sender ${sender} AND its entire domain? They will never appear in Haven again.`
-        : `Block sender ${sender}? They will never appear in Haven again. (Shift+click to also block the domain.)`;
-      if (!confirm(promptText)) return;
-      if (msgId) blockSender(msgId, blockBtn, domainToo);
-      return;
-    }
-    const ignoreBtn = e.target.closest(".ignore-btn");
-    if (ignoreBtn) {
-      e.preventDefault();
-      const msgId = ignoreBtn.dataset.msgId;
-      if (msgId) ignoreMessage(msgId, ignoreBtn);
-      return;
-    }
-    const linearBtn = e.target.closest("button.linear-btn");
-    if (linearBtn) {
-      e.preventDefault();
-      const msgId = linearBtn.dataset.msgId;
-      if (msgId) startLinearCapture(msgId, linearBtn);
-      return;
-    }
-    const markDoneBtn = e.target.closest(".mark-done-btn");
-    if (markDoneBtn) {
-      e.preventDefault();
-      markItemDone(markDoneBtn.dataset.source, markDoneBtn.dataset.msgId, markDoneBtn);
-      return;
-    }
-    const unmarkDoneBtn = e.target.closest(".unmark-done-btn");
-    if (unmarkDoneBtn) {
-      e.preventDefault();
-      unmarkItemDone(unmarkDoneBtn.dataset.source, unmarkDoneBtn.dataset.msgId, unmarkDoneBtn);
-      return;
-    }
-    const snoozeBtn = e.target.closest(".snooze-btn");
-    if (snoozeBtn) {
-      e.preventDefault();
-      snoozeItem(snoozeBtn.dataset.source, snoozeBtn.dataset.msgId, snoozeBtn.dataset.preset, snoozeBtn);
-      return;
-    }
-    const unsnoozeBtn = e.target.closest(".unsnooze-btn");
-    if (unsnoozeBtn) {
-      e.preventDefault();
-      unsnoozeItem(unsnoozeBtn.dataset.source, unsnoozeBtn.dataset.msgId, unsnoozeBtn);
-      return;
-    }
-    const head = e.target.closest(".bucket-head");
-    if (head) {
-      const key = head.dataset.toggle;
-      if (key && bucketCollapsed.hasOwnProperty(key)) {
-        bucketCollapsed[key] = !bucketCollapsed[key];
-        renderItems();
-      }
-    }
-  });
+/* ---------- PEOPLE (stub) ---------- */
+function renderPeople() {
+  $('#detail-pane').innerHTML = '';
+  $('#list-pane').innerHTML = `<div class="empty" style="padding-top:90px">
+    <div class="big">◔</div>
+    <div style="font-weight:650;color:var(--text-2);margin-bottom:6px">People rollup isn't here yet</div>
+    Ships with the JIRA source + person rollup (Phase 2).
+  </div>`;
+}
 
-  // Sidebar / header counts: click → scroll to bucket
-  function scrollToBucket(key) {
-    const el = document.getElementById(`bucket-${key}`);
-    if (!el) return;
-    if (bucketCollapsed[key]) {
-      bucketCollapsed[key] = false;
-      renderItems();
-      // Allow re-render before scrolling
-      requestAnimationFrame(() => {
-        const fresh = document.getElementById(`bucket-${key}`);
-        if (fresh) fresh.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-      return;
-    }
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+/* ---------- SYSTEM ---------- */
+function authKV(source) {
+  const a = state.auth[source] || {};
+  const rows = [];
+  for (const [k, v] of Object.entries(a)) {
+    if (k === 'authed') continue;
+    rows.push(`<span class="k">${esc(k)}</span><span class="v ${k === 'error' ? 'err' : ''}">${esc(String(v))}</span>`);
   }
-
-  sidebarCountsEl.addEventListener("click", (e) => {
-    const urgentToggle = e.target.closest("[data-filter='urgent']");
-    if (urgentToggle) {
-      urgentOnly = !urgentOnly;
-      renderItems();
-      return;
-    }
-    const li = e.target.closest("[data-jump]");
-    if (!li) return;
-    scrollToBucket(li.dataset.jump);
-  });
-  headerCountsEl.addEventListener("click", (e) => {
-    const hc = e.target.closest("[data-jump]");
-    if (!hc) return;
-    scrollToBucket(hc.dataset.jump);
-  });
-
-  // ─── Hero click delegation (Phase 1.7) ──────────────────
-  // Hero lives outside #items so it needs its own delegation. Mirrors the
-  // handlers in the main itemsEl listener above.
-  if (heroEl) {
-    heroEl.addEventListener("click", (e) => {
-      const subjectLink = e.target.closest("a.subject[data-msg-id]");
-      if (subjectLink) {
-        const msgId = subjectLink.dataset.msgId;
-        const src = subjectLink.dataset.source;
-        const reviewMode = e.shiftKey;
-        if (!reviewMode) {
-          if (src === "gmail" && msgId) {
-            archiveOne(msgId);
-          } else if (src === "slack" && msgId) {
-            removeFromRecent(msgId);
-            fetch(`/api/agents/slack/items/${encodeURIComponent(msgId)}`, { method: "DELETE" }).catch(() => {});
-          }
-        }
-        return; // browser handles the link
-      }
-      const linearBtn = e.target.closest("button.linear-btn");
-      if (linearBtn) {
-        e.preventDefault();
-        const msgId = linearBtn.dataset.msgId;
-        if (msgId) startLinearCapture(msgId, linearBtn);
-        return;
-      }
-      const wikiBtn = e.target.closest(".wiki-btn");
-      if (wikiBtn) {
-        e.preventDefault();
-        const msgId = wikiBtn.dataset.msgId;
-        if (msgId) addToWiki(msgId, wikiBtn);
-        return;
-      }
-      const markDoneBtn = e.target.closest(".mark-done-btn");
-      if (markDoneBtn) {
-        e.preventDefault();
-        markItemDone(markDoneBtn.dataset.source, markDoneBtn.dataset.msgId, markDoneBtn);
-        return;
-      }
-      const snoozeBtn = e.target.closest(".snooze-btn");
-      if (snoozeBtn) {
-        e.preventDefault();
-        snoozeItem(snoozeBtn.dataset.source, snoozeBtn.dataset.msgId, snoozeBtn.dataset.preset, snoozeBtn);
-        return;
-      }
-    });
-  }
-
-  // ─── Mark done / Snooze handlers (Phase 1.7) ────────────
-  async function markItemDone(source, msgId, btn) {
-    if (!source || !msgId) return;
-    if (btn) { btn.disabled = true; btn.textContent = "marking…"; }
-    try {
-      const r = await fetch(`/api/items/${source}/${encodeURIComponent(msgId)}/mark-done`, { method: "POST" });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Mark done failed:", err);
-        showError(`POST mark-done → ${r.status}\n\n${err}`);
-        if (btn) { btn.disabled = false; btn.textContent = "Mark done"; }
-        return;
-      }
-      const j = await r.json();
-      const item = recent.find(i => i.msg_id === msgId);
-      if (item) {
-        item.handled_at = j.handled_at;
-        renderItems();
-      }
-      const headline = j.archived_in_source ? "Marked done · archived in Gmail" : "Marked done";
-      makeToast("success",
-        `${headline} <div class="sub">${escapeHtml((item && item.subject || "").slice(0, 80))}</div>`,
-        { actionLabel: "Undo", onAction: (el) => { el.remove(); unmarkItemDone(source, msgId); }, autoDismissMs: 5000 }
-      );
-    } catch (e) {
-      console.error("Mark done error:", e);
-      if (btn) { btn.disabled = false; btn.textContent = "Mark done"; }
-    }
-  }
-
-  async function markThreadDone(threadId, btn) {
-    if (!threadId) return;
-    const orig = btn ? btn.textContent : "";
-    if (btn) { btn.disabled = true; btn.textContent = "marking…"; }
-    try {
-      const r = await fetch(`/api/items/gmail/thread/${encodeURIComponent(threadId)}/mark-done`, { method: "POST" });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Thread mark done failed:", err);
-        showError(`POST thread mark-done → ${r.status}\n\n${err}`);
-        if (btn) { btn.disabled = false; btn.textContent = orig; }
-        return;
-      }
-      const j = await r.json();
-      const ids = new Set(j.handled || []);
-      for (const it of recent) { if (ids.has(it.msg_id)) it.handled_at = j.handled_at; }
-      renderItems();
-      makeToast("success",
-        `Thread marked done · ${j.count} message${j.count === 1 ? "" : "s"} archived`,
-        { actionLabel: "Undo", onAction: (el) => { el.remove(); unmarkThread(j.handled); }, autoDismissMs: 6000 }
-      );
-    } catch (e) {
-      console.error("Thread mark done error:", e);
-      if (btn) { btn.disabled = false; btn.textContent = orig; }
-    }
-  }
-
-  async function unmarkThread(ids) {
-    for (const id of (ids || [])) { await unmarkItemDone("gmail", id); }
-  }
-
-  async function snoozeThread(threadId, preset, btn) {
-    if (!threadId) return;
-    const ids = recent.filter(i => sourceOf(i) === "gmail" && i.thread_id === threadId && !isHandled(i)).map(i => i.msg_id);
-    if (ids.length === 0) return;
-    const orig = btn ? btn.textContent : "";
-    if (btn) { btn.disabled = true; btn.textContent = "snoozing…"; }
-    for (const id of ids) {
-      try {
-        const r = await fetch(`/api/items/gmail/${encodeURIComponent(id)}/snooze`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ preset }),
-        });
-        if (r.ok) { const j = await r.json(); const it = recent.find(x => x.msg_id === id); if (it) it.snooze_until = j.snooze_until; }
-      } catch (e) { console.error("Thread snooze error:", e); }
-    }
-    renderItems();
-    if (btn) { btn.disabled = false; btn.textContent = orig; }
-    makeToast("success", `Snoozed ${ids.length} message${ids.length === 1 ? "" : "s"} in thread for 1 hour`, { autoDismissMs: 5000 });
-  }
-
-  async function unmarkItemDone(source, msgId, btn) {
-    if (!source || !msgId) return;
-    if (btn) { btn.disabled = true; btn.textContent = "…"; }
-    try {
-      const r = await fetch(`/api/items/${source}/${encodeURIComponent(msgId)}/unmark-done`, { method: "POST" });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Unmark done failed:", err);
-        if (btn) { btn.disabled = false; btn.textContent = "Unmark done"; }
-        return;
-      }
-      const item = recent.find(i => i.msg_id === msgId);
-      if (item) {
-        delete item.handled_at;
-        renderItems();
-      }
-    } catch (e) {
-      console.error("Unmark done error:", e);
-      if (btn) { btn.disabled = false; btn.textContent = "Unmark done"; }
-    }
-  }
-
-  async function snoozeItem(source, msgId, preset, btn) {
-    if (!source || !msgId || !preset) return;
-    const original = btn ? btn.textContent : "";
-    if (btn) { btn.disabled = true; btn.textContent = "snoozing…"; }
-    try {
-      const r = await fetch(`/api/items/${source}/${encodeURIComponent(msgId)}/snooze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preset }),
-      });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Snooze failed:", err);
-        showError(`POST snooze → ${r.status}\n\n${err}`);
-        if (btn) { btn.disabled = false; btn.textContent = original; }
-        return;
-      }
-      const j = await r.json();
-      const item = recent.find(i => i.msg_id === msgId);
-      if (item) {
-        item.snooze_until = j.snooze_until;
-        renderItems();
-      }
-      const label = preset === "1h" ? "1 hour" : (preset === "tomorrow" ? "tomorrow 7am" : preset);
-      makeToast("success",
-        `Snoozed for ${label} <div class="sub">${escapeHtml((item && item.subject || "").slice(0, 80))}</div>`,
-        { actionLabel: "Undo", onAction: (el) => { el.remove(); unsnoozeItem(source, msgId); }, autoDismissMs: 5000 }
-      );
-    } catch (e) {
-      console.error("Snooze error:", e);
-      if (btn) { btn.disabled = false; btn.textContent = original; }
-    }
-  }
-
-  async function unsnoozeItem(source, msgId, btn) {
-    if (!source || !msgId) return;
-    if (btn) { btn.disabled = true; btn.textContent = "…"; }
-    try {
-      const r = await fetch(`/api/items/${source}/${encodeURIComponent(msgId)}/unsnooze`, { method: "POST" });
-      if (!r.ok) {
-        console.error("Unsnooze failed:", await r.text());
-        if (btn) { btn.disabled = false; btn.textContent = "Unsnooze"; }
-        return;
-      }
-      const item = recent.find(i => i.msg_id === msgId);
-      if (item) {
-        delete item.snooze_until;
-        renderItems();
-      }
-    } catch (e) {
-      console.error("Unsnooze error:", e);
-      if (btn) { btn.disabled = false; btn.textContent = "Unsnooze"; }
-    }
-  }
-
-  async function blockSender(msgId, btn, domainToo) {
-    btn.disabled = true;
-    btn.textContent = "blocking…";
-    try {
-      const r = await fetch("/api/agents/gmail/block", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ msg_id: msgId, domain_too: domainToo }),
-      });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Block failed:", err);
-        showError(`POST /api/agents/gmail/block → ${r.status}\n\n${err}`);
-        btn.textContent = "Block";
-        btn.disabled = false;
-        return;
-      }
-      const j = await r.json();
-      removeFromRecent(msgId);
-      gmailMeta.textContent = `blocked ${j.blocked}${j.domain_blocked ? ' (+ domain)' : ''}`;
-    } catch (e) {
-      console.error("Block error:", e);
-      showError(`Block error: ${e.message}`);
-      btn.textContent = "Block";
-      btn.disabled = false;
-    }
-  }
-
-  async function ignoreMessage(msgId, btn) {
-    btn.disabled = true;
-    btn.textContent = "ignoring…";
-    try {
-      const r = await fetch("/api/agents/gmail/ignore", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ msg_id: msgId }),
-      });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Ignore failed:", err);
-        showError(`POST /api/agents/gmail/ignore → ${r.status}\n\n${err}`);
-        btn.textContent = "Ignore";
-        btn.disabled = false;
-        return;
-      }
-      removeFromRecent(msgId);
-      gmailMeta.textContent = "ignored (labeled 'ignore' in Gmail)";
-    } catch (e) {
-      console.error("Ignore error:", e);
-      showError(`Ignore error: ${e.message}`);
-      btn.textContent = "Ignore";
-      btn.disabled = false;
-    }
-  }
-
-  // ─── Linear AR capture (Phase 1.6) ─────────────────────
-  // Click "→ Linear" → toast with 30s countdown + Undo. Server is NOT called
-  // until the timer elapses, so undo is free and never touches Linear.
-  const toastStack = document.getElementById("toast-stack");
-  const pendingLinear = new Map(); // msgId → { timeoutId, intervalId, toastEl }
-
-  function makeToast(kind, html, { actionLabel, onAction, autoDismissMs } = {}) {
-    const el = document.createElement("div");
-    el.className = `toast ${kind}`;
-    const text = document.createElement("div");
-    text.className = "toast-text";
-    text.innerHTML = html;
-    el.appendChild(text);
-    if (actionLabel) {
-      const btn = document.createElement("button");
-      btn.className = "toast-action";
-      btn.textContent = actionLabel;
-      btn.addEventListener("click", () => onAction && onAction(el));
-      el.appendChild(btn);
-    }
-    const close = document.createElement("button");
-    close.className = "toast-close";
-    close.textContent = "×";
-    close.title = "Dismiss";
-    close.addEventListener("click", () => el.remove());
-    el.appendChild(close);
-    toastStack.appendChild(el);
-    if (autoDismissMs) {
-      setTimeout(() => el.remove(), autoDismissMs);
-    }
-    return el;
-  }
-
-  function cancelLinearCapture(msgId) {
-    const p = pendingLinear.get(msgId);
-    if (!p) return;
-    clearTimeout(p.timeoutId);
-    clearInterval(p.intervalId);
-    p.toastEl.remove();
-    pendingLinear.delete(msgId);
-    const btn = document.querySelector(`button.linear-btn[data-msg-id="${CSS.escape(msgId)}"]`);
-    if (btn) {
-      btn.disabled = false;
-      btn.classList.remove("pending");
-      btn.textContent = "→ Linear";
-    }
-  }
-
-  function startLinearCapture(msgId, btn) {
-    if (pendingLinear.has(msgId)) return; // already counting down
-
-    const item = recent.find(i => i.msg_id === msgId);
-    if (item && item.linear_id) return;
-    const subject = (item && item.subject) || "(no subject)";
-
-    btn.disabled = true;
-    btn.classList.add("pending");
-
-    let remaining = 10;
-    const text = `Sending to Linear in <strong><span class="lin-count">${remaining}</span>s</strong>…<div class="sub">${escapeHtml(subject.slice(0, 80))}</div>`;
-    const toast = makeToast("pending", text, {
-      actionLabel: "Undo",
-      onAction: () => cancelLinearCapture(msgId),
-    });
-
-    const counterEl = toast.querySelector(".lin-count");
-    btn.textContent = `→ Linear in ${remaining}s`;
-
-    const intervalId = setInterval(() => {
-      remaining -= 1;
-      if (counterEl) counterEl.textContent = remaining;
-      if (btn.isConnected) btn.textContent = `→ Linear in ${remaining}s`;
-    }, 1000);
-
-    const timeoutId = setTimeout(async () => {
-      clearInterval(intervalId);
-      pendingLinear.delete(msgId);
-      toast.remove();
-      await sendLinearCreate(msgId);
-    }, 10 * 1000);
-
-    pendingLinear.set(msgId, { timeoutId, intervalId, toastEl: toast });
-  }
-
-  // Linked-issue chrome: the "→ IDENT" open-in-Linear chip plus either a
-  // "Close issue" button (closes the issue in Linear via a Done-state transition)
-  // or a "✓ closed" marker once it's been closed.
-  function linearLinkedHtml(item, src) {
-    const ident = escapeHtml(item.linear_identifier || "Linear");
-    const url = escapeHtml(item.linear_url || "#");
-    const link = `<a class="linear-btn linked" href="${url}" target="_blank" rel="noopener" title="Open in Linear">→ ${ident}</a>`;
-    const close = item.linear_closed_at
-      ? `<span class="linear-closed" title="Closed in Linear${item.linear_state ? " · " + escapeHtml(item.linear_state) : ""}">✓ closed</span>`
-      : `<button class="linear-close-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Close this Linear issue — moves it to a Done state. Reversible in Linear.">Close issue</button>`;
-    return link + close;
-  }
-
-  async function closeLinearIssue(msgId, src, btn) {
-    const item = recent.find(i => i.msg_id === msgId);
-    if (!item || !item.linear_id) return;
-    if (item.linear_closed_at) return; // already closed
-    if (!confirm(`Close Linear issue ${item.linear_identifier || ""}? It moves to a Done state (reversible in Linear).`)) return;
-    if (!src) src = sourceOf(item);
-    if (btn) { btn.disabled = true; btn.classList.add("pending"); btn.textContent = "Closing…"; }
-    const sending = makeToast("pending", "Closing Linear issue…");
-    try {
-      const r = await fetch(`/api/items/${src}/${encodeURIComponent(msgId)}/linear/close`, { method: "POST" });
-      sending.remove();
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Linear close failed:", err);
-        makeToast("err",
-          `<strong>Linear close failed</strong><div class="sub">${escapeHtml(err.slice(0, 240))}</div>`,
-          { autoDismissMs: 8000 }
-        );
-        if (btn) { btn.disabled = false; btn.classList.remove("pending"); btn.textContent = "Close issue"; }
-        return;
-      }
-      const j = await r.json();
-      const it = recent.find(i => i.msg_id === msgId);
-      if (it) {
-        it.linear_closed_at = j.closed_at || (Date.now() / 1000);
-        it.linear_state = j.state_name;
-        renderItems();
-      }
-      const ident = j.linear_identifier || (it && it.linear_identifier) || "issue";
-      makeToast("success",
-        `Closed <strong>${escapeHtml(ident)}</strong> in Linear${j.state_name ? ` (${escapeHtml(j.state_name)})` : ""}.`,
-        { autoDismissMs: 6000 }
-      );
-    } catch (e) {
-      sending.remove();
-      console.error("Linear close error:", e);
-      makeToast("err", `<strong>Linear close error</strong><div class="sub">${escapeHtml(e.message)}</div>`, { autoDismissMs: 8000 });
-      if (btn) { btn.disabled = false; btn.classList.remove("pending"); btn.textContent = "Close issue"; }
-    }
-  }
-
-  // Global delegation for the Close-issue button — works across the bucket list,
-  // hero strip, and contacts panel without touching their individual listeners.
-  document.addEventListener("click", (e) => {
-    const closeBtn = e.target.closest("button.linear-close-btn");
-    if (closeBtn) {
-      e.preventDefault();
-      closeLinearIssue(closeBtn.dataset.msgId, closeBtn.dataset.source, closeBtn);
-    }
-  });
-
-  async function sendLinearCreate(msgId) {
-    const item = recent.find(i => i.msg_id === msgId);
-    const src = sourceOf(item || {});
-    const sending = makeToast("pending", `Creating Linear issue…`);
-    try {
-      const r = await fetch(`/api/items/${src}/${encodeURIComponent(msgId)}/linear`, {
-        method: "POST",
-      });
-      sending.remove();
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Linear create failed:", err);
-        makeToast("err",
-          `<strong>Linear create failed</strong><div class="sub">${escapeHtml(err.slice(0, 240))}</div>`,
-          { autoDismissMs: 8000 }
-        );
-        const btn = document.querySelector(`button.linear-btn[data-msg-id="${CSS.escape(msgId)}"]`);
-        if (btn) {
-          btn.disabled = false;
-          btn.classList.remove("pending");
-          btn.textContent = "→ Linear";
-        }
-        return;
-      }
-      const j = await r.json();
-      const item = recent.find(i => i.msg_id === msgId);
-      if (item) {
-        item.linear_id = j.linear_id;
-        item.linear_url = j.linear_url;
-        item.linear_identifier = j.linear_identifier;
-        renderItems();
-      }
-      const ident = j.linear_identifier || "issue";
-      const url = j.linear_url || "#";
-      makeToast("success",
-        `Created <a href="${escapeHtml(url)}" target="_blank" rel="noopener"><strong>${escapeHtml(ident)}</strong></a> in Linear.`,
-        { autoDismissMs: 6000 }
-      );
-    } catch (e) {
-      sending.remove();
-      console.error("Linear create error:", e);
-      makeToast("err", `<strong>Linear error</strong><div class="sub">${escapeHtml(e.message)}</div>`, { autoDismissMs: 8000 });
-      const btn = document.querySelector(`button.linear-btn[data-msg-id="${CSS.escape(msgId)}"]`);
-      if (btn) {
-        btn.disabled = false;
-        btn.classList.remove("pending");
-        btn.textContent = "→ Linear";
-      }
-    }
-  }
-
-  async function addToWiki(msgId, btn) {
-    if (btn.classList.contains("in-wiki")) {
-      if (!confirm("Already added. Re-ingest this email and update wiki pages?")) return;
-    }
-    btn.disabled = true;
-    btn.textContent = "ingesting…";
-    try {
-      const r = await fetch("/api/wiki/ingest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: "gmail", msg_id: msgId }),
-      });
-      if (!r.ok) {
-        const err = await r.text();
-        console.error("Wiki ingest failed:", err);
-        showError(`POST /api/wiki/ingest → ${r.status}\n\n${err}`);
-        btn.textContent = "+ Wiki";
-        btn.disabled = false;
-        return;
-      }
-      const j = await r.json();
-      const item = recent.find(i => i.msg_id === msgId);
-      if (item) {
-        item.wiki_ingested = true;
-        renderItems();
-      }
-      gmailMeta.textContent = `wiki: ${j.files_written.length} page${j.files_written.length === 1 ? "" : "s"} touched (${j.files_written.join(", ")})`;
-    } catch (e) {
-      console.error("Wiki ingest error:", e);
-      showError(`Wiki ingest error: ${e.message}`);
-      btn.textContent = "+ Wiki";
-      btn.disabled = false;
-    }
-  }
-
-  // Current set of items being shown.
-  const recent = [];
-  const RECENT_MAX = 200;
-
-  // Bulk-select state — Set of msg_ids checked for batch action (gmail/slack only).
-  const selectedItems = new Set();
-  const bulkBar = document.getElementById("bulk-bar");
-  const bulkCount = document.getElementById("bulk-count");
-  const bulkProcessBtn = document.getElementById("bulk-process-btn");
-  const bulkCancelBtn = document.getElementById("bulk-cancel-btn");
-
-  function syncBulkBar() {
-    const n = selectedItems.size;
-    bulkCount.textContent = n;
-    bulkBar.classList.toggle("visible", n > 0);
-    document.body.classList.toggle("bulk-mode", n > 0);
-    if (n > 0) {
-      const sel = recent.filter(i => selectedItems.has(i.msg_id));
-      const g = sel.filter(i => sourceOf(i) === "gmail").length;
-      const s = sel.filter(i => sourceOf(i) === "slack").length;
-      const parts = [];
-      if (g) parts.push(`Archive ${g} Gmail`);
-      if (s) parts.push(`Dismiss ${s} Slack`);
-      bulkProcessBtn.textContent = parts.join(" + ") || "Process";
-    }
-  }
-
-  function clearSelection() {
-    if (selectedItems.size === 0) return;
-    selectedItems.clear();
-    document.querySelectorAll(".item.selected").forEach(el => el.classList.remove("selected"));
-    document.querySelectorAll(".select-cb:checked").forEach(cb => { cb.checked = false; });
-    syncBulkBar();
-  }
-
-  async function processSelected() {
-    if (selectedItems.size === 0) return;
-    const ids = [...selectedItems];
-    bulkProcessBtn.disabled = true;
-    bulkCancelBtn.disabled = true;
-    try {
-      // Group by source so we issue per-source batch calls.
-      const sel = recent.filter(i => ids.includes(i.msg_id));
-      const gmail = sel.filter(i => sourceOf(i) === "gmail").map(i => i.msg_id);
-      const slack = sel.filter(i => sourceOf(i) === "slack").map(i => i.msg_id);
-
-      // Fire all archive/dismiss calls in parallel — each is independent.
-      const calls = [];
-      for (const id of gmail) {
-        calls.push(fetch(`/api/agents/gmail/items/${encodeURIComponent(id)}/archive`, { method: "POST" }).catch(() => null));
-      }
-      for (const id of slack) {
-        calls.push(fetch(`/api/agents/slack/items/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null));
-      }
-      await Promise.all(calls);
-
-      // Optimistically remove from view (server-side calls already fired).
-      const idSet = new Set(ids);
-      for (let i = recent.length - 1; i >= 0; i--) {
-        if (idSet.has(recent[i].msg_id)) recent.splice(i, 1);
-      }
-      selectedItems.clear();
-      renderItems();
-      syncBulkBar();
-      gmailMeta.textContent = `processed ${ids.length} item${ids.length === 1 ? "" : "s"} · Gmail ${gmail.length} archived · Slack ${slack.length} dismissed`;
-    } finally {
-      bulkProcessBtn.disabled = false;
-      bulkCancelBtn.disabled = false;
-    }
-  }
-
-  bulkProcessBtn.addEventListener("click", processSelected);
-  bulkCancelBtn.addEventListener("click", clearSelection);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && selectedItems.size > 0) clearSelection();
-  });
-
-  function escapeHtml(s) {
-    return (s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
-  }
-
-  function fmtFrom(item) {
-    const name = item.sender_name || item.sender_email || item.sender_id || "(unknown)";
-    if ((item.source || "gmail") === "slack") {
-      const ch = item.channel_name ? `#${item.channel_name}` : "";
-      const where = item.channel_type === "im" ? "DM"
-                  : item.channel_type === "mpim" ? "Group DM"
-                  : ch || "";
-      return where
-        ? `<b>${escapeHtml(name)}</b> · ${escapeHtml(where)}`
-        : `<b>${escapeHtml(name)}</b>`;
-    }
-    const company = item.sender_company || item.sender_domain || "";
-    if (!company) return `<b>${escapeHtml(name)}</b>`;
-    return `<b>${escapeHtml(name)}</b> · ${escapeHtml(company)}`;
-  }
-
-  function sourceOf(item) {
-    return item.source || "gmail";
-  }
-  function sourceLabel(src) {
-    return { gmail: "Gmail", slack: "Slack", freshservice: "Freshservice", otter: "Otter" }[src] || src;
-  }
-
-  function fmtDate(iso) {
-    if (!iso) return "";
-    try {
-      const d = new Date(iso);
-      if (isNaN(d)) return iso.slice(0, 30);
-      return d.toLocaleString();
-    } catch { return iso.slice(0, 30); }
-  }
-
-  function fmtRelative(iso) {
-    if (!iso) return "";
-    try {
-      const d = new Date(iso);
-      if (isNaN(d)) return iso.slice(0, 16);
-      const ms = Date.now() - d.getTime();
-      const sec = Math.floor(ms / 1000);
-      if (sec < 60) return "just now";
-      const min = Math.floor(sec / 60);
-      if (min < 60) return `${min}m ago`;
-      const hr = Math.floor(min / 60);
-      if (hr < 24) return `${hr}h ago`;
-      const day = Math.floor(hr / 24);
-      if (day === 1) return "yesterday";
-      if (day < 7) return `${day}d ago`;
-      return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    } catch { return iso.slice(0, 16); }
-  }
-
-  function bucketOf(item) {
-    if (item.tag === "noise") return "noise";
-    // Approval is more specific than AR — pull approval items out so they don't
-    // get lost in the AR bucket. LLM emits tag="approval" when waiting on Garth's sign-off.
-    if (item.tag === "approval") return "approval";
-    if (item.action_required) return "ar";
-    if (item.reply_needed) return "reply";
-    const u = (item.urgency || "").toLowerCase();
-    const importantU = u === "urgent" || u === "high" || u === "med";
-    if (importantU || item.is_elt || item.is_team || item.from_ayar) return "important";
-    return "fyi";
-  }
-
-  function renderCounts(buckets) {
-    // Urgent row sits above the bucket list — toggles a global filter rather than jumping.
-    // Count uses `recent` (all items, all sources) so the badge reflects total urgent items
-    // regardless of the source filter or the current toggle state. Handled items
-    // (Mark-done OR captured to Linear) are excluded so the count drops as Garth
-    // clears them out — matching the bucket counts below, which also hide handled.
-    const urgentN = recent.filter(i => isUrgent(i) && !isHandled(i)).length;
-    const urgentCls = ["urgent-filter", urgentN === 0 ? "zero" : "", urgentOnly ? "active" : ""].filter(Boolean).join(" ");
-    const urgentRow = `<li class="${urgentCls}" data-filter="urgent" title="${urgentOnly ? "Click to clear filter" : "Show only items tagged URGENT"}">
-        <span class="label">Urgent</span><span class="n">${urgentN}</span>
-      </li>`;
-
-    const defs = [
-      { key: "ar", label: "Action Required" },
-      { key: "approval", label: "Approval" },
-      { key: "reply", label: "Reply Needed" },
-      { key: "important", label: "Important" },
-      { key: "fyi", label: "FYI" },
-      { key: "noise", label: "Noise" },
-    ];
-    const bucketRows = defs.map(d => {
-      const n = buckets[d.key].length;
-      const cls = ["", d.key, n === 0 ? "zero" : ""].filter(Boolean).join(" ");
-      return `<li class="${cls}" data-jump="${d.key}" title="Jump to ${d.label}">
-        <span class="label">${d.label}</span><span class="n">${n}</span>
-      </li>`;
-    }).join("");
-    sidebarCountsEl.innerHTML = urgentRow + bucketRows;
-
-    // Compact header counts: only show non-zero high-signal buckets to keep header tidy.
-    const headerDefs = [
-      { key: "ar", label: "AR" },
-      { key: "approval", label: "Appr" },
-      { key: "reply", label: "Reply" },
-      { key: "important", label: "Imp" },
-    ];
-    const headerTitleMap = { AR: "Action Required", Appr: "Approval", Reply: "Reply Needed", Imp: "Important" };
-    headerCountsEl.innerHTML = headerDefs.map(d => {
-      const n = buckets[d.key].length;
-      const cls = ["hc", d.key, n === 0 ? "zero" : ""].filter(Boolean).join(" ");
-      return `<span class="${cls}" data-jump="${d.key}" title="Jump to ${headerTitleMap[d.label] || d.label}">
-        ${d.label} <span class="n">${n}</span>
-      </span>`;
-    }).join("");
-  }
-
-  function renderItem(item, kind) {
-    const role = (item.garth_recipient_role || "").toUpperCase();
-    const roleBadge = role && role !== "BCC"
-      ? `<span class="badge role">${role} ME</span>`
-      : "";
-    const urgency = (item.urgency || "").toLowerCase();
-    const urgencyBadge = urgency
-      ? `<span class="badge urg-${urgency}">${urgency.toUpperCase()}</span>`
-      : "";
-    const tag = (item.tag || "").toLowerCase();
-    const tagBadge = tag
-      ? `<span class="badge tag-${tag}" title="LLM tag: ${tag}">${tag}</span>`
-      : "";
-    const actionRequiredBadge = item.action_required
-      ? `<span class="badge action-req" title="LLM flagged: Garth must personally act on this">ACTION</span>`
-      : "";
-    const eltBadge = item.is_elt ? `<span class="badge elt" title="ELT member">ELT</span>` : "";
-    const teamBadge = (item.is_team && !item.is_elt) ? `<span class="badge team" title="Garth's team">TEAM</span>` : "";
-    const internalBadge = (item.from_ayar && !item.is_elt && !item.is_team) ? `<span class="badge internal" title="Internal Ayar Labs sender">INTERNAL</span>` : "";
-    const filteredBadge = (item.filter_status === "reject")
-      ? `<span class="badge filtered" title="${escapeHtml(item.filter_reason || 'filtered out')}">filtered</span>`
-      : "";
-    const replyNeededBadge = item.reply_needed
-      ? `<span class="badge reply-needed" title="${escapeHtml(item.reply_reason || 'Reply needed per LLM analysis')}">reply needed</span>`
-      : "";
-    const handledBadge = item.handled_at
-      ? `<span class="badge handled" title="Marked done by Garth — click 'Unmark done' to surface back">✓ done</span>`
-      : "";
-    const snoozedBadge = (parseFloat(item.snooze_until || 0) > Date.now() / 1000)
-      ? `<span class="badge snoozed" title="Snoozed until ${escapeHtml(new Date(parseFloat(item.snooze_until) * 1000).toLocaleString())}">💤 snoozed</span>`
-      : "";
-    const owesReplyBadge = (!item.reply_needed && item.last_inbound_at && !item.garth_owns_last_turn)
-      ? `<span class="badge owe" title="Last message in this thread is from someone else — heuristic">owes reply</span>`
-      : "";
-    const scoreErrBadge = item.score_error
-      ? `<span class="badge score-err" title="${escapeHtml(item.score_error)}">⚠ score</span>`
-      : "";
-    const watchlistBadge = item.watchlist_match
-      ? `<span class="badge watchlist" title="Matched your watchlist keyword: ${escapeHtml(item.watchlist_match)}">📌 ${escapeHtml(item.watchlist_match)}</span>`
-      : "";
-    const datesBadge = (item.dates_mentioned && item.dates_mentioned.length)
-      ? `<span class="badge dates" title="${escapeHtml(item.dates_mentioned.join(', '))}">📅 ${item.dates_mentioned.length}</span>`
-      : "";
-    const threadBadge = (item.thread_message_count > 1)
-      ? `<span class="badge" title="thread has ${item.thread_message_count} messages">↩ ${item.thread_message_count}</span>`
-      : "";
-    const attachBadge = item.has_attachment
-      ? `<span class="badge">📎 ${item.attachment_count}</span>`
-      : "";
-    const labelBadges = (item.labels || [])
-      .filter(l => !l.startsWith("CATEGORY_") && !l.startsWith("Label_") && l !== "INBOX" && l !== "UNREAD" && l !== "IMPORTANT")
-      .slice(0, 2)
-      .map(l => `<span class="badge">${escapeHtml(l)}</span>`)
-      .join("");
-    const summaryLine = item.summary
-      ? `<div class="summary" title="${escapeHtml(item.suggested_action || '')}">${escapeHtml(item.summary)}</div>`
-      : "";
-    const replyLine = (item.reply_needed && item.suggested_reply)
-      ? `<div class="reply-line">↳ ${escapeHtml(item.suggested_reply)}</div>`
-      : "";
-    const itemClasses = [
-      "item",
-      tag === "noise" ? "noise" : "",
-      kind === "ar" ? "action-required" : "",
-      kind === "approval" ? "approval-emphasis" : "",
-      kind === "reply" ? "reply-emphasis" : "",
-    ].filter(Boolean).join(" ");
-    const src = sourceOf(item);
-    const srcBadge = `<span class="badge src-${src}" title="${escapeHtml(sourceLabel(src))}">${escapeHtml(sourceLabel(src))}</span>`;
-    const channelBadge = (src === "slack" && item.channel_type === "channel" && item.channel_name)
-      ? `<span class="badge src-channel">#${escapeHtml(item.channel_name)}</span>`
-      : "";
-    const gmailOnly = src === "gmail";
-    const slackOnly = src === "slack";
-    const selectable = src === "gmail" || src === "slack";
-    const isSelected = selectable && selectedItems.has(item.msg_id);
-    const itemClassesFinal = isSelected ? itemClasses + " selected" : itemClasses;
-    const checkbox = selectable
-      ? `<input type="checkbox" class="select-cb" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" ${isSelected ? "checked" : ""} title="Select for bulk action">`
-      : "";
-    return `
-      <div class="${itemClassesFinal}" data-source="${escapeHtml(src)}">
-        <div class="row1">
-          ${checkbox}
-          <a class="subject" href="${escapeHtml(item.deeplink)}" target="_blank" rel="noopener" title="${escapeHtml(item.subject)}\n\nClick: open + auto-archive in Haven\nShift+click: open without archiving (review mode — keeps it in Haven so you can add to Wiki after reading)" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}">${escapeHtml(item.subject || "(no subject)")}</a>
-          <span class="date" title="${escapeHtml(fmtDate(item.date))}">${escapeHtml(fmtRelative(item.date))}</span>
-        </div>
-        <div class="row2">
-          <span class="from">${fmtFrom(item)}</span>
-          <span class="badges">
-            ${srcBadge}${channelBadge}${actionRequiredBadge}${watchlistBadge}${eltBadge}${teamBadge}${internalBadge}${urgencyBadge}${tagBadge}${replyNeededBadge}${owesReplyBadge}${handledBadge}${snoozedBadge}${filteredBadge}${scoreErrBadge}${roleBadge}${datesBadge}${threadBadge}${attachBadge}${labelBadges}
-          </span>
-        </div>
-        ${summaryLine}
-        ${replyLine}
-        ${item.score_error ? `<div class="score-error-line">⚠ score: ${escapeHtml(item.score_error)}</div>` : ""}
-        <div class="actions">
-          ${gmailOnly ? `<button class="archive-btn" data-msg-id="${escapeHtml(item.msg_id)}" title="Archive in Gmail (removes INBOX label, recoverable from All Mail)">Archive</button>` : ""}
-          ${slackOnly ? `<button class="dismiss-slack-btn" data-msg-id="${escapeHtml(item.msg_id)}" title="Dismiss this Slack message from Haven. Slack itself is unchanged; the message will return on next poll only if still unread.">Dismiss</button>` : ""}
-          ${gmailOnly ? `<button class="wiki-btn ${item.wiki_ingested ? 'in-wiki' : ''}" data-msg-id="${escapeHtml(item.msg_id)}" title="Send this email to the curated wiki — the LLM creates/updates the relevant people, company, event, and topic pages.">${item.wiki_ingested ? '✓ in wiki' : '+ Wiki'}</button>` : ""}
-          ${item.linear_id
-            ? linearLinkedHtml(item, src)
-            : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR in the CIO ARs project. 10-second undo before it's sent.">→ Linear</button>`
-          }
-          ${item.handled_at ? `<button class="unmark-done-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Bring this item back to the active view">Unmark done</button>` : ""}
-          ${(parseFloat(item.snooze_until || 0) > Date.now() / 1000) ? `<button class="unsnooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Cancel snooze — surface back immediately">Unsnooze</button>` : ""}
-          ${gmailOnly ? `<button class="block-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-sender="${escapeHtml(item.sender_email || '')}" title="Add this sender to the dynamic block list — they'll never appear in Haven again. Shift+click to also block the entire domain.">Block</button>` : ""}
-          ${gmailOnly ? `<button class="ignore-btn" data-msg-id="${escapeHtml(item.msg_id)}" title="Tag this email with the Gmail 'ignore' label and drop it from Haven. Haven never imports anything labeled 'ignore'. Reversible by removing the label in Gmail.">Ignore</button>` : ""}
-        </div>
+  return rows.join('');
+}
+function renderSystem() {
+  const pend = state.approvals.drafts.length;
+  const h = state.health || {};
+  const llm = state.llm;
+  const srcCards = SOURCES.map(s => {
+    const a = state.auth[s] || {};
+    const items = state.items[s];
+    const actionable = items.filter(i => i.tag !== 'noise' && !i.raw.handled_at && !isSnoozed(i)).length;
+    const handled = items.filter(i => i.raw.handled_at).length;
+    return `<div class="sys-card ${a.authed ? '' : 'down'}">
+      <div class="sys-hd">${glyph(s)}<span class="nm">${esc(SRC[s].label)}</span>
+        <span class="st ${a.authed ? 'st-ok' : 'st-down'}">${a.authed ? 'AUTHORIZED' : 'NO AUTH'}</span></div>
+      <div class="sys-kv">
+        <span class="k">Cached items</span><span class="v">${items.length}</span>
+        <span class="k">Actionable</span><span class="v">${actionable}</span>
+        <span class="k">Handled</span><span class="v">${handled}</span>
+        ${authKV(s)}
       </div>
-    `;
-  }
+      <div style="margin-top:10px"><button class="btn btn-ghost" style="width:100%;justify-content:center;font-size:11.5px;padding:6px" data-poll="${s}">Poll now</button></div>
+    </div>`;
+  }).join('');
+  const jiraCard = `<div class="sys-card"><div class="sys-hd"><span class="nm">JIRA</span><span class="st st-off">SOON</span></div>
+    <div class="sys-kv"><span class="k">Status</span><span class="v">Ships in Phase 2</span></div></div>`;
 
-  function groupByThread(items) {
-    // Group Gmail messages sharing a thread_id into one entry, preserving the
-    // incoming (date-desc) order by first appearance. Non-Gmail items, and Gmail
-    // items without a thread_id, are their own singleton group.
-    const map = new Map();
-    const order = [];
-    for (const it of items) {
-      const key = (sourceOf(it) === "gmail" && it.thread_id) ? ("t:" + it.thread_id) : ("m:" + it.msg_id);
-      if (!map.has(key)) { map.set(key, []); order.push(key); }
-      map.get(key).push(it);
-    }
-    return order.map(k => map.get(k));
-  }
-
-  function collapseThreads(items) {
-    // One display unit per Gmail thread. Multi-message threads collapse into a unit
-    // carrying the whole group (_thread_group); the unit's own fields are the MOST
-    // URGENT member's, so hero/bucket placement reflects the strongest signal.
-    return groupByThread(items).map(group => {
-      if (group.length <= 1) return group[0];
-      const lead = [...group].sort(heroSort)[0];
-      return Object.assign({}, lead, { _thread_group: group });
-    });
-  }
-
-  function threadBadgesHtml(group) {
-    const any = (f) => group.some(f);
-    const parts = [`<span class="badge src-gmail" title="Gmail">Gmail</span>`];
-    if (any(i => i.action_required)) parts.push(`<span class="badge action-req" title="A message in this thread needs your action">ACTION</span>`);
-    if (any(i => (i.tag || "").toLowerCase() === "approval")) parts.push(`<span class="badge tag-approval" title="approval somewhere in thread">approval</span>`);
-    if (any(i => i.reply_needed)) parts.push(`<span class="badge reply-needed" title="A message in this thread needs a reply">reply needed</span>`);
-    if (any(i => (i.urgency || "").toLowerCase() === "urgent")) parts.push(`<span class="badge urg-urgent">URGENT</span>`);
-    if (any(i => i.handled_at)) parts.push(`<span class="badge handled" title="some messages already marked done">✓ some done</span>`);
-    return parts.join("");
-  }
-
-  function renderThreadCard(group, kind) {
-    // group is date-desc; the newest message represents the collapsed thread.
-    const ordered = [...group].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
-    const latest = ordered[0];
-    const threadId = latest.thread_id;
-    const count = group.length;
-    const expanded = threadExpanded.has(threadId);
-    const subj = latest.subject || "(no subject)";
-    const itemClasses = [
-      "item", "thread-card",
-      expanded ? "expanded" : "",
-      kind === "ar" ? "action-required" : "",
-      kind === "approval" ? "approval-emphasis" : "",
-      kind === "reply" ? "reply-emphasis" : "",
-    ].filter(Boolean).join(" ");
-    const summaryLine = latest.summary
-      ? `<div class="summary" title="latest message in thread">${escapeHtml(latest.summary)}</div>`
-      : "";
-    const children = expanded
-      ? `<div class="thread-children">${ordered.map(it => renderItem(it, kind)).join("")}</div>`
-      : "";
-    return `
-      <div class="${itemClasses}" data-thread-id="${escapeHtml(threadId)}">
-        <div class="row1">
-          <button class="thread-toggle" data-thread-id="${escapeHtml(threadId)}" title="${expanded ? "Collapse" : "Expand"} this thread (${count} messages)"><span class="thread-chevron">▾</span></button>
-          <a class="subject" href="${escapeHtml(latest.deeplink)}" target="_blank" rel="noopener" data-msg-id="${escapeHtml(latest.msg_id)}" data-source="gmail" title="${escapeHtml(subj)}\n\nClick: open in Gmail + mark whole thread done\nShift+click: open without clearing">${escapeHtml(subj)}</a>
-          <span class="thread-pill" title="${count} messages in this Gmail thread">↩ ${count} in thread</span>
-          <span class="date" title="${escapeHtml(fmtDate(latest.date))}">${escapeHtml(fmtRelative(latest.date))}</span>
-        </div>
-        <div class="row2">
-          <span class="from">${fmtFrom(latest)}</span>
-          <span class="badges">${threadBadgesHtml(group)}</span>
-        </div>
-        ${summaryLine}
-        <div class="actions">
-          <button class="thread-done-btn" data-thread-id="${escapeHtml(threadId)}" title="Archive and mark done every message in this Gmail thread">Mark thread done (${count})</button>
-          <button class="thread-snooze-btn" data-thread-id="${escapeHtml(threadId)}" data-preset="1h" title="Snooze every message in this thread for 1 hour">Snooze 1h</button>
-          <button class="thread-toggle" data-thread-id="${escapeHtml(threadId)}">${expanded ? "Collapse" : ("Expand " + count)}</button>
-        </div>
-        ${children}
-      </div>
-    `;
-  }
-
-  function renderBucket(key, title, items) {
-    const collapsed = bucketCollapsed[key];
-    const empty = items.length === 0;
-    const cls = ["bucket", empty ? "is-empty" : "", collapsed ? "collapsed" : ""].filter(Boolean).join(" ");
-    const body = empty
-      ? `<div class="section-empty-line">no ${title.toLowerCase()}</div>`
-      : items.map(it => it._thread_group ? renderThreadCard(it._thread_group, key) : renderItem(it, key)).join("");
-    return `
-      <section class="${cls}" id="bucket-${key}" data-kind="${key}">
-        <header class="bucket-head" data-toggle="${key}" title="Click to ${collapsed ? 'expand' : 'collapse'}">
-          <span class="bucket-chevron">▾</span>
-          <h2>${escapeHtml(title)}</h2>
-          <span class="bucket-count">${items.length}</span>
-        </header>
-        ${(collapsed || empty) ? "" : `<div class="bucket-body">${body}</div>`}
-        ${empty && !collapsed ? `<div class="bucket-body">${body}</div>` : ""}
-      </section>
-    `;
-  }
-
-  // Source filter: "all" | "gmail" | "slack" | "freshservice" | "otter"
-  let activeSource = "all";
-  // Urgency filter — toggled from At-A-Glance "Urgent" row
-  let urgentOnly = false;
-
-  function isUrgent(item) {
-    return (item.urgency || "").toLowerCase() === "urgent";
-  }
-
-  function visibleItems() {
-    let items = recent;
-    if (activeSource !== "all") items = items.filter(i => sourceOf(i) === activeSource);
-    if (urgentOnly) items = items.filter(isUrgent);
-    return items;
-  }
-
-  function renderSourceCounts() {
-    const el = document.getElementById("source-counts");
-    if (!el) return;
-    // Split into active (open) and handled (Mark-done OR captured to Linear).
-    const active = { all: 0, gmail: 0, slack: 0, freshservice: 0, otter: 0 };
-    const handled = { all: 0, gmail: 0, slack: 0, freshservice: 0, otter: 0 };
-    for (const i of recent) {
-      const src = sourceOf(i);
-      const bucket = isHandled(i) ? handled : active;
-      bucket.all++;
-      if (bucket[src] !== undefined) bucket[src]++;
-    }
-    const order = ["all", "gmail", "slack", "freshservice", "otter"];
-    el.innerHTML = order.map(k => {
-      const a = active[k] || 0;
-      const h = handled[k] || 0;
-      const cls = "src-pill" + (activeSource === k ? " active" : "");
-      const label = k === "all" ? "All" : sourceLabel(k);
-      return `<span class="${cls}" data-src="${k}" title="${label}: ${a} active · ${h} handled (marked done or captured to Linear)"><span class="src-name">${label}</span><span class="src-n">${a}</span><span class="src-h">/${h}</span></span>`;
-    }).join("");
-  }
-
-  // ─── Hero (Phase 1.7) — top-of-canvas strip ─────────────
-  const HERO_LIMIT = 10;
-
-  // Aging thresholds (days) — older items in these states get bumped to URGENT
-  // even if the LLM didn't tag them that way. The intent is that nothing
-  // important sits in "Needs your attention" forever without escalating.
-  const AGING_DAYS = {
-    approval: 2,      // approvals block other people — escalate fast
-    action: 3,        // direct ARs — escalate after 3 days
-    reply: 5,         // reply-needed — escalate after 5 days
-    elt_team: 2,      // ELT/team items that are unhandled — escalate after 2 days
-  };
-
-  function ageDays(item) {
-    const ts = Date.parse(item.date) || 0;
-    if (!ts) return 0;
-    return (Date.now() - ts) / 86400000;
-  }
-
-  function agingReason(item) {
-    // Return a short human reason if this item is being escalated by age.
-    // Order matters: pick the strictest threshold that applies.
-    const days = ageDays(item);
-    if (days < 1) return "";
-    const d = Math.floor(days);
-    if (item.tag === "approval" && days >= AGING_DAYS.approval) {
-      return `aging: approval pending ${d}d`;
-    }
-    if (item.action_required && days >= AGING_DAYS.action) {
-      return `aging: action required ${d}d`;
-    }
-    if (item.reply_needed && days >= AGING_DAYS.reply) {
-      return `aging: reply needed ${d}d`;
-    }
-    if ((item.is_elt || item.is_team) && days >= AGING_DAYS.elt_team
-        && (item.action_required || item.reply_needed || item.tag === "approval")) {
-      return `aging: ELT/team item ${d}d old`;
-    }
-    return "";
-  }
-
-  function clientUrgency(item) {
-    // The LLM's word is final if it said "urgent". Otherwise we apply
-    // aging-based escalation so old hero-eligible items don't get buried.
-    const llm = (item.urgency || "").toLowerCase();
-    if (llm === "urgent") return "urgent";
-    if (agingReason(item)) return "urgent";
-    return llm;
-  }
-
-  // Date-window filter for the hero strip. Persisted to localStorage so the
-  // last choice survives a reload.
-  const HERO_DATE_WINDOWS = {
-    all: { label: "All time", days: null },
-    "1": { label: "Today", days: 1 },
-    "3": { label: "Last 3 days", days: 3 },
-    "7": { label: "Last 7 days", days: 7 },
-    "30": { label: "Last 30 days", days: 30 },
-  };
-  let heroDateWindow = (() => {
-    try { return localStorage.getItem("heroDateWindow") || "all"; }
-    catch (e) { return "all"; }
-  })();
-  function setHeroDateWindow(v) {
-    heroDateWindow = HERO_DATE_WINDOWS[v] ? v : "all";
-    try { localStorage.setItem("heroDateWindow", heroDateWindow); } catch (e) {}
-    renderItems();
-  }
-  function withinHeroWindow(item) {
-    const w = HERO_DATE_WINDOWS[heroDateWindow] || HERO_DATE_WINDOWS.all;
-    if (w.days == null) return true;
-    return ageDays(item) <= w.days;
-  }
-
-  function isSnoozed(item) {
-    const until = parseFloat(item.snooze_until || 0);
-    return until > Date.now() / 1000;
-  }
-
-  function isHandled(item) {
-    // "Handled" covers two paths: explicit Mark-done (handled_at) and Linear capture
-    // (linear_id). Both share the same Hide-handled filter — once an AR is in Linear,
-    // Linear is the system of record, so it's effectively handled in Haven.
-    return Boolean(item.handled_at) || Boolean(item.linear_id);
-  }
-
-  function isHeroEligible(item) {
-    if (isSnoozed(item)) return false;          // also filtered server-side, but keep client-side honest
-    if (isHandled(item)) return false;
-    const isApproval = item.tag === "approval";
-    const isAR = Boolean(item.action_required);
-    const isSlackDM = sourceOf(item) === "slack" && (item.channel_type === "im" || item.channel_type === "mpim");
-    const isReplyChannel = Boolean(item.reply_needed) && !isSlackDM;
-    return isApproval || isAR || isReplyChannel;
-  }
-
-  function heroTier(item) {
-    if (item.tag === "approval") return 0;       // approvals first within urgency tier
-    if (item.action_required) return 1;
-    return 2;                                     // reply-needed channel
-  }
-
-  function heroSort(a, b) {
-    // Sort by effective urgency first — aging-escalated items rank alongside
-    // LLM-urgent ones so timed-out approvals/ARs bubble up automatically.
-    const ua = clientUrgency(a) === "urgent" ? 0 : 1;
-    const ub = clientUrgency(b) === "urgent" ? 0 : 1;
-    if (ua !== ub) return ua - ub;
-    const ta = heroTier(a), tb = heroTier(b);
-    if (ta !== tb) return ta - tb;
-    return (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0);
-  }
-
-  function renderHeroCard(item) {
-    const src = sourceOf(item);
-    const role = (item.garth_recipient_role || "").toUpperCase();
-    const roleBadge = role && role !== "BCC" ? `<span class="badge role">${role} ME</span>` : "";
-    const llmUrgency = (item.urgency || "").toLowerCase();
-    const effUrgency = clientUrgency(item);
-    const aging = agingReason(item);
-    // The badge shows the effective urgency (URGENT if aging-bumped). Tooltip
-    // explains the bump so Garth can see why.
-    const urgencyTip = aging
-      ? `LLM tag: ${llmUrgency || 'none'} · escalated — ${aging}`
-      : (llmUrgency ? `LLM tag: ${llmUrgency}` : "");
-    const urgencyBadge = effUrgency
-      ? `<span class="badge urg-${effUrgency}" title="${escapeHtml(urgencyTip)}">${effUrgency.toUpperCase()}${aging ? " ⏰" : ""}</span>`
-      : "";
-    const tag = (item.tag || "").toLowerCase();
-    const tagBadge = tag ? `<span class="badge tag-${tag}" title="LLM tag: ${tag}">${tag}</span>` : "";
-    const arBadge = item.action_required
-      ? `<span class="badge action-req" title="LLM flagged: Garth must personally act on this">ACTION</span>` : "";
-    const replyBadge = item.reply_needed
-      ? `<span class="badge reply-needed" title="${escapeHtml(item.reply_reason || 'Reply needed per LLM analysis')}">reply needed</span>` : "";
-    const eltBadge = item.is_elt ? `<span class="badge elt">ELT</span>` : "";
-    const teamBadge = (item.is_team && !item.is_elt) ? `<span class="badge team">TEAM</span>` : "";
-    const srcBadge = `<span class="badge src-${src}">${escapeHtml(sourceLabel(src))}</span>`;
-    const channelBadge = (src === "slack" && item.channel_type === "channel" && item.channel_name)
-      ? `<span class="badge src-channel">#${escapeHtml(item.channel_name)}</span>` : "";
-
-    // Body: prefer fully-expanded suggested_reply for reply-needed items.
-    let body = "";
-    if (item.reply_needed && item.suggested_reply) {
-      body = `<div class="hero-suggested">${escapeHtml(item.suggested_reply)}</div>`;
-    } else if (item.summary) {
-      const action = item.suggested_action ? ` <span class="action-tail">— ${escapeHtml(item.suggested_action)}</span>` : "";
-      body = `<div class="hero-summary">${escapeHtml(item.summary)}${action}</div>`;
-    } else if (item.suggested_action) {
-      body = `<div class="hero-summary"><span class="action-tail">${escapeHtml(item.suggested_action)}</span></div>`;
-    }
-
-    const linearAction = item.linear_id
-      ? linearLinkedHtml(item, src)
-      : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR. 10-second undo before it's sent.">→ Linear</button>`;
-
-    // Wiki ingest is gmail-only — re-fetches the body and runs an LLM pass that
-    // updates people/company/event/topic pages.
-    const wikiAction = (src === "gmail")
-      ? `<button class="wiki-btn ${item.wiki_ingested ? 'in-wiki' : ''}" data-msg-id="${escapeHtml(item.msg_id)}" title="Send this email to the curated wiki — the LLM creates/updates the relevant people, company, event, and topic pages.">${item.wiki_ingested ? '✓ in wiki' : '+ Wiki'}</button>`
-      : "";
-
-    const cls = ["hero-card", effUrgency === "urgent" ? "urgent" : "", aging ? "aging" : ""].filter(Boolean).join(" ");
-    return `
-      <div class="${cls}" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}">
-        <div class="hero-row1">
-          <a class="subject" href="${escapeHtml(item.deeplink)}" target="_blank" rel="noopener" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="${escapeHtml(item.subject)}\n\nClick: open in source\nShift+click: open without auto-archive">${escapeHtml(item.subject || "(no subject)")}</a>
-          <span class="date" title="${escapeHtml(fmtDate(item.date))}">${escapeHtml(fmtRelative(item.date))}</span>
-        </div>
-        <div class="hero-row2">
-          <span class="from">${fmtFrom(item)}</span>
-          <span class="badges">${srcBadge}${channelBadge}${arBadge}${urgencyBadge}${tagBadge}${replyBadge}${eltBadge}${teamBadge}${roleBadge}</span>
-        </div>
-        ${body}
-        <div class="hero-actions">
-          <button class="mark-done-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Mark this item handled. Hidden from view; toggle 'Hide handled' off to surface it back.">Mark done</button>
-          <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="1h" title="Hide for 1 hour">Snooze 1h</button>
-          <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="tomorrow" title="Hide until 7am tomorrow">Snooze ↻</button>
-          ${wikiAction}
-          ${linearAction}
-          ${(src === "gmail") ? `<button class="ignore-btn" data-msg-id="${escapeHtml(item.msg_id)}" title="Tag this email with the Gmail 'ignore' label and drop it from Haven. Haven never imports anything labeled 'ignore'. Reversible by removing the label in Gmail.">Ignore</button>` : ""}
-        </div>
-      </div>
-    `;
-  }
-
-  function renderHero(heroItems, totalEligible, totalAllTime) {
-    if (!heroEl) return;
-    const windowOpts = Object.entries(HERO_DATE_WINDOWS).map(([v, cfg]) => {
-      const sel = v === heroDateWindow ? " selected" : "";
-      return `<option value="${v}"${sel}>${escapeHtml(cfg.label)}</option>`;
-    }).join("");
-    const dateFilterEl = `<select id="hero-date-window" class="hero-date-select" title="Limit 'Needs your attention' to items younger than this">${windowOpts}</select>`;
-
-    const hiddenByDate = (typeof totalAllTime === "number" && totalAllTime > totalEligible)
-      ? totalAllTime - totalEligible
-      : 0;
-    const dateHint = hiddenByDate > 0
-      ? ` · ${hiddenByDate} hidden by date filter`
-      : "";
-
-    if (heroItems.length === 0) {
-      // Even when empty, keep the header visible so Garth can change the date
-      // filter to surface older items if he just cleared today's queue.
-      heroEl.hidden = false;
-      heroEl.innerHTML = `
-        <div class="hero-head">
-          <span class="hero-title">Needs your attention</span>
-          <span class="hero-sub">nothing pressing in window${dateHint}</span>
-          ${dateFilterEl}
-        </div>
-      `;
-      return;
-    }
-    const more = totalEligible > heroItems.length
-      ? `<div class="hero-more">+${totalEligible - heroItems.length} more in the buckets below</div>`
-      : "";
-    heroEl.hidden = false;
-    heroEl.innerHTML = `
-      <div class="hero-head">
-        <span class="hero-title">Needs your attention</span>
-        <span class="hero-sub">${heroItems.length} of ${totalEligible} most-pressing · approvals · ARs · reply-needed${dateHint}</span>
-        ${dateFilterEl}
-      </div>
-      ${heroItems.map(renderHeroCard).join("")}
-      ${more}
-    `;
-  }
-
-  function renderItems() {
-    // Bucket every item.
-    const buckets = { ar: [], approval: [], reply: [], important: [], fyi: [], noise: [] };
-    const allVisible = visibleItems();
-    // Hide handled items (toggle: #hide-handled, default checked).
-    const items0 = (hideHandledEl && hideHandledEl.checked)
-      ? allVisible.filter(i => !isHandled(i))
-      : allVisible;
-    // Collapse multi-message Gmail threads into one display unit BEFORE the hero/
-    // bucket split, so a whole conversation is a single card placed by its most
-    // urgent message and cleared in one click.
-    const items = collapseThreads(items0);
-
-    // Pick hero items + dedup from buckets. Apply the date-window filter
-    // first so older items don't crowd out today's signal, but always count
-    // the unfiltered total so we can show "+N hidden by date filter".
-    const heroEligibleAll = items.filter(i => !i._thread_group && isHeroEligible(i));
-    const heroEligible = heroEligibleAll.filter(withinHeroWindow).sort(heroSort);
-    const heroItems = heroEligible.slice(0, HERO_LIMIT);
-    const heroIds = new Set(heroItems.map(i => i.msg_id));
-    renderHero(heroItems, heroEligible.length, heroEligibleAll.length);
-
-    for (const item of items) {
-      if (heroIds.has(item.msg_id)) continue;     // dedup: hero items not duplicated in buckets
-      buckets[bucketOf(item)].push(item);
-    }
-    renderSourceCounts();
-
-    // Sort each bucket strictly by date desc — newest at top.
-    const sortFn = (a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0);
-    for (const k of Object.keys(buckets)) buckets[k].sort(sortFn);
-
-    renderCounts(buckets);
-
-    if (recent.length === 0) {
-      itemsEmpty.hidden = false;
-      itemsEmpty.textContent = "No items yet — click \"Poll now\" to fetch from Gmail.";
-      itemsEl.innerHTML = "";
-      return;
-    }
-
-    const hideNoise = hideNoiseEl.checked;
-    const visibleCount = buckets.ar.length + buckets.approval.length + buckets.reply.length + buckets.important.length + buckets.fyi.length + (hideNoise ? 0 : buckets.noise.length);
-    if (visibleCount === 0 && heroItems.length === 0) {
-      itemsEmpty.hidden = false;
-      itemsEmpty.textContent = (hideNoise && buckets.noise.length)
-        ? `All ${buckets.noise.length} items hidden as noise — uncheck "Hide noise" to see them.`
-        : "No items yet — click \"Poll now\" to fetch from Gmail.";
-      itemsEl.innerHTML = "";
-      return;
-    }
-    itemsEmpty.hidden = true;
-
-    const sections = [
-      renderBucket("ar", "Action Required", buckets.ar),
-      renderBucket("approval", "Approval", buckets.approval),
-      renderBucket("reply", "Reply Needed", buckets.reply),
-      renderBucket("important", "Important", buckets.important),
-      renderBucket("fyi", "FYI", buckets.fyi),
-    ];
-    if (!hideNoise) {
-      sections.push(renderBucket("noise", "Noise", buckets.noise));
-    }
-    itemsEl.innerHTML = sections.join("");
-  }
-
-  function pushItem(item) {
-    if (recent.find(i => i.msg_id === item.msg_id)) return;
-    recent.unshift(item);
-    if (recent.length > RECENT_MAX) recent.length = RECENT_MAX;
-    renderItems();
-  }
-
-  function setPill(id, state, tooltip) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.classList.remove("ok", "err", "warn");
-    el.classList.add(state);
-    if (tooltip) el.title = tooltip;
-  }
-
-  async function refreshGmailStatus() {
+  $('#detail-pane').innerHTML = '';
+  $('#list-pane').innerHTML = `<div class="sys-wrap">
+    <div class="sec-title" style="margin-top:0">Sources</div>
+    <div class="sys-grid">${srcCards}${jiraCard}</div>
+    <div class="sec-title">Runtime</div>
+    <div class="sys-grid">
+      <div class="sys-card"><div class="sys-hd"><span class="nm">Health</span><span class="st ${h.status === 'ok' ? 'st-ok' : 'st-down'}">${esc((h.status || 'unknown').toUpperCase())}</span></div>
+        <div class="sys-kv">
+          <span class="k">SSE subscribers</span><span class="v">${h.subscribers != null ? h.subscribers : '—'}</span>
+          <span class="k">Server time</span><span class="v">${h.ts ? fmtEpoch(h.ts) : '—'}</span>
+          <span class="k">SSE (this tab)</span><span class="v ${state.sse.live ? '' : 'err'}">${state.sse.live ? 'connected' : 'disconnected'}</span>
+        </div></div>
+      <div class="sys-card"><div class="sys-hd"><span class="nm">LLM</span><span class="st ${llm && llm.cli_available ? 'st-ok' : 'st-down'}">${llm ? (llm.cli_available ? 'AVAILABLE' : 'UNAVAILABLE') : 'UNKNOWN'}</span></div>
+        <div class="sys-kv">
+          <span class="k">Runtime</span><span class="v">${esc(llm ? llm.runtime : '—')}</span>
+          <span class="k">Model</span><span class="v">${esc(llm ? llm.model : '—')}</span>
+          <span class="k">CLI</span><span class="v">${llm && llm.cli_available ? 'found' : 'missing'}</span>
+          ${llm && llm.cli_path ? `<span class="k">Path</span><span class="v" style="font-family:var(--mono);font-size:10px">${esc(llm.cli_path)}</span>` : ''}
+          ${llm && llm.local_base_url ? `<span class="k">Local URL</span><span class="v">${esc(llm.local_base_url)}</span>` : ''}
+        </div></div>
+      <div class="sys-card"><div class="sys-hd"><span class="nm">Send mode</span><span class="st ${state.approvals.dry_run ? 'st-warn' : 'st-ok'}">${state.approvals.dry_run ? 'DRY-RUN' : 'LIVE'}</span></div>
+        <div class="sys-kv">
+          <span class="k">Pending drafts</span><span class="v">${pend}</span>
+          <span class="k">Guardrail</span><span class="v">1 approval = 1 send</span>
+          <span class="k">Behavior</span><span class="v">${state.approvals.dry_run ? 'approve logs, nothing transmits' : 'approve transmits'}</span>
+        </div></div>
+    </div>
+  </div>`;
+  $('#list-pane').querySelectorAll('[data-poll]').forEach(b => b.addEventListener('click', async () => {
+    const s = b.dataset.poll;
+    b.disabled = true; b.textContent = 'Polling…';
     try {
-      const r = await fetch("/api/auth/gmail/status");
-      const j = await r.json();
-      const needRescope = j.authed && !j.scopes_ok;
-      gmailPanel.hidden = !j.authed;
-      if (!j.authed) {
-        setPill("conn-gmail", "err", "Gmail not connected — click to authorize");
-      } else if (needRescope) {
-        setPill("conn-gmail", "warn", "Gmail re-authorization needed (archive scope) — click to re-consent");
-      } else {
-        setPill("conn-gmail", "ok", "Gmail connected · click to re-authorize");
-      }
-    } catch (e) { /* ignore */ }
-  }
+      await api(`/api/agents/${s}/poll`, { method: 'POST' });
+      await fetchItems(s);
+      toast(`${SRC[s].label} poll complete`);
+    } catch (e) { toast(`${SRC[s].label} poll failed: ` + e.message, true); }
+    render();
+  }));
+}
 
-  async function refreshSlackStatus() {
-    try {
-      const r = await fetch("/api/auth/slack/status");
-      const j = await r.json();
-      if (j.authed) {
-        setPill("conn-slack", "ok", "Slack connected · DMs · #elt-2026 · @-mentions · CEO");
-      } else {
-        setPill("conn-slack", "err", `Slack not connected: ${j.reason || "SLACK_USER_TOKEN missing"}`);
-      }
-    } catch (e) { /* ignore */ }
-  }
+/* ===================== KEYBOARD (Option A model) ===================== */
+document.addEventListener('keydown', e => {
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
 
-  async function refreshFreshserviceStatus() {
-    try {
-      const r = await fetch("/api/auth/freshservice/status");
-      const j = await r.json();
-      if (j.authed) {
-        setPill("conn-freshservice", "ok", "Freshservice connected · open + pending · assigned to me + unassigned");
-      } else {
-        setPill("conn-freshservice", "err", `Freshservice not connected: ${j.reason || "API key missing"}`);
-      }
-    } catch (e) { /* ignore */ }
-  }
+  // view switching
+  if (['1', '2', '3', '4'].includes(e.key)) { setView(VIEW_KEYS[Number(e.key) - 1]); e.preventDefault(); return; }
 
-  async function refreshOtterStatus() {
-    try {
-      const r = await fetch("/api/auth/otter/status");
-      const j = await r.json();
-      if (j.authed) {
-        setPill("conn-otter", "ok", `Otter connected · ${j.workspace_name || ''} · ARs assigned to ${j.owner_email || 'you'}`);
-      } else {
-        setPill("conn-otter", "err", `Otter not connected: ${j.reason || "OTTER_API_KEY missing"}`);
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  async function loadCachedItems() {
-    try {
-      const [gr, sr, fr, or] = await Promise.all([
-        fetch("/api/agents/gmail/items").catch(() => null),
-        fetch("/api/agents/slack/items").catch(() => null),
-        fetch("/api/agents/freshservice/items").catch(() => null),
-        fetch("/api/agents/otter/items").catch(() => null),
-      ]);
-      const gj = gr && gr.ok ? await gr.json() : { items: [] };
-      const sj = sr && sr.ok ? await sr.json() : { items: [] };
-      const fj = fr && fr.ok ? await fr.json() : { items: [] };
-      const oj = or && or.ok ? await or.json() : { items: [] };
-      recent.length = 0;
-      recent.push(...(gj.items || []), ...(sj.items || []), ...(fj.items || []), ...(oj.items || []));
-      renderItems();
-      if (recent.length) {
-        const g = (gj.items || []).length;
-        const s = (sj.items || []).length;
-        const f = (fj.items || []).length;
-        const o = (oj.items || []).length;
-        gmailMeta.textContent = `${recent.length} cached · Gmail ${g} · Slack ${s} · FS ${f} · Otter ${o} · click "Poll now" to refresh`;
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  // Track in-flight poll status per source so we can report progress + reset
-  // the button once *all* sources are done.
-  const pollStatus = {
-    gmail: { done: true, label: "" },
-    slack: { done: true, label: "" },
-    freshservice: { done: true, label: "" },
-    otter: { done: true, label: "" },
-  };
-
-  function updatePollMeta() {
-    const parts = [];
-    if (pollStatus.gmail.label) parts.push(`Gmail: ${pollStatus.gmail.label}`);
-    if (pollStatus.slack.label) parts.push(`Slack: ${pollStatus.slack.label}`);
-    if (pollStatus.freshservice.label) parts.push(`FS: ${pollStatus.freshservice.label}`);
-    if (pollStatus.otter.label) parts.push(`Otter: ${pollStatus.otter.label}`);
-    if (parts.length) gmailMeta.textContent = parts.join(" · ");
-    const allDone = pollStatus.gmail.done && pollStatus.slack.done && pollStatus.freshservice.done && pollStatus.otter.done;
-    pollBtn.disabled = !allDone;
-    pollBtn.textContent = allDone ? "Poll now" : "Polling…";
-  }
-
-  function mergeItems(newItems, sourceFilter) {
-    /* Replace items from `sourceFilter` with the fresh response, keeping
-       items from other sources intact. This way Gmail finishing doesn't wipe
-       Slack's items and vice-versa. */
-    if (!Array.isArray(newItems)) return;
-    const others = recent.filter(i => sourceOf(i) !== sourceFilter);
-    recent.length = 0;
-    recent.push(...others, ...newItems);
-    renderItems();
-  }
-
-  async function pollSource(source, force) {
-    pollStatus[source] = { done: false, label: force ? "force re-fetching…" : "fetching…" };
-    updatePollMeta();
-    const url = `/api/agents/${source}/poll${force ? "?force=true" : ""}`;
-    try {
-      const r = await fetch(url, { method: "POST" });
-      if (!r.ok) {
-        const err = await r.text();
-        pollStatus[source] = { done: true, label: `failed (HTTP ${r.status})` };
-        showError(`POST ${url} → ${r.status}\n\n${err}`);
-        console.error(`${source} poll failed:`, err);
-        updatePollMeta();
-        return;
-      }
-      const j = await r.json();
-      mergeItems(j.items || [], source);
-
-      // Source-specific summary line
-      if (source === "gmail") {
-        const noise = (j.items || []).filter(i => i.tag === "noise").length;
-        const silenced = (j.previously_rejected || 0) + (j.rejected_by_filter || 0);
-        const segs = [`${j.queried_total ?? '?'} in inbox`];
-        if (j.new_count) segs.push(`+${j.new_count} new`);
-        if (j.scored_by_llm) segs.push(`${j.scored_by_llm} LLM`);
-        if (silenced) segs.push(`${silenced} silenced`);
-        if (noise && hideNoiseEl.checked) segs.push(`${noise} noise hidden`);
-        pollStatus.gmail = { done: true, label: segs.join(" · ") };
-      } else if (source === "slack") {
-        const segs = [`${(j.items || []).length} items`];
-        if (j.new_count) segs.push(`+${j.new_count} new`);
-        if (j.scored_by_llm) segs.push(`${j.scored_by_llm} LLM`);
-        pollStatus.slack = { done: true, label: segs.join(" · ") };
-      } else if (source === "otter") {
-        const segs = [`${j.queried_total ?? 0} ARs`];
-        if (j.new_count) segs.push(`+${j.new_count} new`);
-        pollStatus.otter = { done: true, label: segs.join(" · ") };
-      } else if (source === "freshservice") {
-        const segs = [`${j.queried_total ?? 0} open tickets`];
-        if (j.new_count) segs.push(`+${j.new_count} new`);
-        if (j.removed_stale) segs.push(`${j.removed_stale} closed`);
-        pollStatus.freshservice = { done: true, label: segs.join(" · ") };
-      }
-    } catch (e) {
-      pollStatus[source] = { done: true, label: `error: ${e.message}` };
-      console.error(`${source} poll error:`, e);
+  if (state.view === 'inbox') {
+    const order = orderedVisible();
+    const idx = order.findIndex(i => i.key === state.selKey);
+    const sel = selectedItem();
+    if (e.key === 'j' || e.key === 'ArrowDown') { moveSel(order, idx, +1); e.preventDefault(); }
+    else if (e.key === 'k' || e.key === 'ArrowUp') { moveSel(order, idx, -1); e.preventDefault(); }
+    else if (e.key === 'e' && sel) itemAction(sel, sel.raw.handled_at ? 'undone' : 'done');
+    else if (e.key === 's' && sel) itemAction(sel, 'snooze1h');
+    else if (e.key === 'S' && sel) itemAction(sel, 'snoozetmrw');
+    else if (e.key === 'c' && sel) itemAction(sel, sel.raw.linear_id ? 'linear-close' : 'linear');
+    else if (e.key === 'd' && sel) {
+      if (sel.source === 'slack') itemAction(sel, 'draft');
+      else toast('Draft reply is Slack-only for now — other sources soon');
     }
-    updatePollMeta();
+    else if (e.key === 'n') toggleFilter('noise');
+    else if (e.key === 'h') toggleFilter('handled');
+  } else if (state.view === 'approvals') {
+    const drafts = state.approvals.drafts;
+    const idx = drafts.findIndex(d => d.id === state.selDraft);
+    if (e.key === 'j' || e.key === 'ArrowDown') { if (drafts.length) { state.selDraft = drafts[Math.min(idx + 1, drafts.length - 1)].id; render(); } e.preventDefault(); }
+    else if (e.key === 'k' || e.key === 'ArrowUp') { if (drafts.length) { state.selDraft = drafts[Math.max(idx - 1, 0)].id; render(); } e.preventDefault(); }
+    else if (e.key === 'a' && state.selDraft != null) approvalAction(state.selDraft, 'approve');
+    else if (e.key === 'r' && state.selDraft != null) approvalAction(state.selDraft, 'reject');
   }
+});
+function moveSel(order, idx, delta) {
+  if (!order.length) return;
+  const next = idx < 0 ? order[0] : order[Math.max(0, Math.min(order.length - 1, idx + delta))];
+  state.selKey = next.key;
+  render();
+  const el = $('#list-pane').querySelector(`.row[data-key="${CSS.escape(next.key)}"]`);
+  if (el) el.scrollIntoView({ block: 'nearest' });
+}
 
-  async function pollNow(force = false) {
-    clearError();
-    // Fire all in parallel; do NOT await before rendering. Each call updates
-    // `recent` and the UI as soon as its own response lands.
-    pollSource("gmail", force);
-    pollSource("slack", force);
-    pollSource("freshservice", force);
-    pollSource("otter", force);
+/* ===================== SSE ===================== */
+function startSSE() {
+  const es = new EventSource('/api/sse/stream');
+  es.onopen = () => { state.sse.live = true; updateLive(); };
+  es.onerror = () => { state.sse.live = false; updateLive(); };  // EventSource auto-reconnects
+  es.addEventListener('heartbeat', () => { state.sse.live = true; state.sse.lastEvent = Date.now(); updateLive(); });
+  const SUFFIXES = ['_item', '_handled', '_unhandled', '_snoozed', '_unsnoozed', '_linearized',
+    '_linear_closed', '_poll_complete', '_cache_cleared', '_item_archived', '_blocked', '_ignored'];
+  for (const s of SOURCES) for (const suf of SUFFIXES) {
+    es.addEventListener(s + suf, () => { state.sse.lastEvent = Date.now(); scheduleRefetch(s); });
   }
-
-  pollBtn.addEventListener("click", (e) => pollNow(e.shiftKey));
-
-  // ─── Contacts panel (Phase 1.9) ─────────────────────────
-  const contactsBtn = document.getElementById("contacts-btn");
-  const contactsPanel = document.getElementById("contacts-panel");
-  const cpBackdrop = contactsPanel.querySelector(".cp-backdrop");
-  const cpCloseBtn = document.getElementById("cp-close");
-  const cpSearch = document.getElementById("cp-search");
-  const cpSort = document.getElementById("cp-sort");
-  const cpBody = document.getElementById("cp-body");
-  const cpMeta = document.getElementById("cp-meta");
-  let contactsCache = [];                           // last-fetched contact list
-  const cpExpanded = new Set();                     // emails expanded in drill-in
-
-  async function openContactsPanel() {
-    contactsPanel.hidden = false;
-    cpBody.innerHTML = `<div class="cp-empty">Loading contacts…</div>`;
-    cpMeta.textContent = "loading…";
-    try {
-      const r = await fetch("/api/contacts");
-      if (!r.ok) {
-        cpBody.innerHTML = `<div class="cp-empty">Failed to load (HTTP ${r.status})</div>`;
-        cpMeta.textContent = "error";
-        return;
-      }
-      const j = await r.json();
-      contactsCache = j.contacts || [];
-      cpMeta.textContent = `${contactsCache.length} contacts`;
-      renderContacts();
-      requestAnimationFrame(() => cpSearch.focus());
-    } catch (e) {
-      cpBody.innerHTML = `<div class="cp-empty">Error: ${escapeHtml(e.message)}</div>`;
-    }
+  es.addEventListener('auth_changed', async () => { await fetchAuth(); render(); });
+}
+function updateLive() {
+  $('#live-dot').classList.toggle('dead', !state.sse.live);
+  $('#live-txt').textContent = state.sse.live ? 'Live · SSE connected' : 'SSE disconnected — retrying…';
+}
+setInterval(() => {  // stale-heartbeat watchdog (server beats every 2s)
+  if (state.sse.lastEvent && Date.now() - state.sse.lastEvent > 15000 && state.sse.live) {
+    state.sse.live = false; updateLive();
   }
-  function closeContactsPanel() {
-    contactsPanel.hidden = true;
-    cpExpanded.clear();
-  }
-  contactsBtn.addEventListener("click", openContactsPanel);
-  cpCloseBtn.addEventListener("click", closeContactsPanel);
-  cpBackdrop.addEventListener("click", closeContactsPanel);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !contactsPanel.hidden) closeContactsPanel();
-  });
-  cpSearch.addEventListener("input", () => renderContacts());
-  cpSort.addEventListener("change", () => renderContacts());
+}, 5000);
 
-  function contactMatchesSearch(c, q) {
-    if (!q) return true;
-    const hay = `${c.name} ${c.email} ${c.company} ${c.domain}`.toLowerCase();
-    return hay.includes(q);
-  }
-
-  function sortContacts(list, key) {
-    const cmp = {
-      last_seen: (a, b) => (b.last_seen || "").localeCompare(a.last_seen || ""),
-      open: (a, b) => (b.open_count - a.open_count) || (b.last_seen || "").localeCompare(a.last_seen || ""),
-      owes: (a, b) => (b.owes_reply_count - a.owes_reply_count) || (b.open_count - a.open_count),
-      name: (a, b) => (a.name || a.email).localeCompare(b.name || b.email),
-    }[key] || ((a, b) => 0);
-    return [...list].sort(cmp);
-  }
-
-  function renderContactRow(c) {
-    const expanded = cpExpanded.has(c.email);
-    const nameHtml = c.name
-      ? `<span class="cp-name">${escapeHtml(c.name)}</span>`
-      : `<span class="cp-name empty">(no name)</span>`;
-    const owesBadge = c.owes_reply_count > 0
-      ? `<span class="cp-count owes" title="Gmail threads where you don't own the last turn">⟵ ${c.owes_reply_count}</span>`
-      : "";
-    const openBadge = `<span class="cp-count open" title="Open items across all sources (not handled, not captured)">${c.open_count}</span>`;
-    const handledBadge = c.handled_count > 0
-      ? `<span class="cp-count handled" title="Handled items: marked done or captured to Linear">✓ ${c.handled_count}</span>`
-      : "";
-    const srcBadges = (c.sources || []).map(s =>
-      `<span class="badge src-${escapeHtml(s)}" title="${escapeHtml(sourceLabel(s))}: ${c.counts_by_source[s] || 0}">${escapeHtml(sourceLabel(s))}</span>`
-    ).join("");
-    const last = c.last_seen ? fmtRelative(c.last_seen) : "—";
-
-    let drillin = "";
-    if (expanded) {
-      const ids = new Set(c.item_msg_ids || []);
-      const items = recent.filter(i => ids.has(i.msg_id));
-      if (items.length === 0) {
-        drillin = `<div class="cp-drillin"><div class="cp-empty" style="padding:10px 0;">No items currently in cache for this contact.</div></div>`;
-      } else {
-        items.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
-        drillin = `<div class="cp-drillin">${items.map(it => renderContactItem(it)).join("")}</div>`;
-      }
-    }
-
-    return `
-      <div class="cp-row ${expanded ? 'expanded' : ''}" data-email="${escapeHtml(c.email)}">
-        <div class="cp-row-top">
-          ${nameHtml}
-          <span class="cp-counts">${owesBadge}${openBadge}${handledBadge}</span>
-        </div>
-        <div class="cp-sub">
-          <span class="cp-email">${escapeHtml(c.email)}</span>
-          ${c.company ? `<span>· ${escapeHtml(c.company)}</span>` : ""}
-          <span class="cp-source-badges">${srcBadges}</span>
-          <span style="margin-left:auto;">${escapeHtml(last)}</span>
-        </div>
-        ${drillin}
-      </div>
-    `;
-  }
-
-  function renderContactItem(item) {
-    const src = sourceOf(item);
-    const handledBadge = item.handled_at ? `<span class="badge handled">✓ done</span>` : "";
-    const linearBadge = item.linear_id
-      ? linearLinkedHtml(item, src)
-      : `<button class="linear-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Capture as a Linear AR. 10-second undo before commit.">→ Linear</button>`;
-    const markDone = !item.handled_at && !item.linear_id
-      ? `<button class="mark-done-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" title="Mark this handled — drops from view.">Mark done</button>`
-      : "";
-    const wikiBtn = (src === "gmail")
-      ? `<button class="wiki-btn ${item.wiki_ingested ? 'in-wiki' : ''}" data-msg-id="${escapeHtml(item.msg_id)}" title="Send this email to the curated wiki.">${item.wiki_ingested ? '✓ in wiki' : '+ Wiki'}</button>`
-      : "";
-    return `
-      <div class="cp-item">
-        <div class="cp-item-row1">
-          <a class="cp-item-subject" href="${escapeHtml(item.deeplink)}" target="_blank" rel="noopener" title="${escapeHtml(item.subject)}">${escapeHtml(item.subject || "(no subject)")}</a>
-          <span class="cp-item-date" title="${escapeHtml(fmtDate(item.date))}">${escapeHtml(fmtRelative(item.date))}</span>
-          <span class="badge src-${escapeHtml(src)}">${escapeHtml(sourceLabel(src))}</span>
-          ${handledBadge}
-        </div>
-        <div class="cp-item-actions">
-          ${linearBadge}
-          ${markDone}
-          ${wikiBtn}
-          <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="1h" title="Hide for 1 hour">Snooze 1h</button>
-          <button class="snooze-btn" data-msg-id="${escapeHtml(item.msg_id)}" data-source="${escapeHtml(src)}" data-preset="tomorrow" title="Hide until 7am tomorrow">Snooze ↻</button>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderContacts() {
-    const q = (cpSearch.value || "").trim().toLowerCase();
-    const filtered = contactsCache.filter(c => contactMatchesSearch(c, q));
-    const sorted = sortContacts(filtered, cpSort.value);
-    if (sorted.length === 0) {
-      cpBody.innerHTML = `<div class="cp-empty">${q ? 'No contacts match your search.' : 'No contacts yet — poll first.'}</div>`;
-      return;
-    }
-    cpBody.innerHTML = sorted.map(renderContactRow).join("");
-  }
-
-  // Click delegation: row toggle + reuse linear/done/snooze handlers from the
-  // main itemsEl listener (declared in the same scope, so the functions exist).
-  cpBody.addEventListener("click", (e) => {
-    const linearBtn = e.target.closest("button.linear-btn");
-    if (linearBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      startLinearCapture(linearBtn.dataset.msgId, linearBtn);
-      return;
-    }
-    const wikiBtn = e.target.closest(".wiki-btn");
-    if (wikiBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      addToWiki(wikiBtn.dataset.msgId, wikiBtn);
-      return;
-    }
-    const markDoneBtn = e.target.closest(".mark-done-btn");
-    if (markDoneBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      markItemDone(markDoneBtn.dataset.source, markDoneBtn.dataset.msgId, markDoneBtn);
-      return;
-    }
-    const snoozeBtn = e.target.closest(".snooze-btn");
-    if (snoozeBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      snoozeItem(snoozeBtn.dataset.source, snoozeBtn.dataset.msgId, snoozeBtn.dataset.preset, snoozeBtn);
-      return;
-    }
-    const subjectLink = e.target.closest("a.cp-item-subject");
-    if (subjectLink) {
-      e.stopPropagation();      // don't toggle row when opening a deeplink
-      return;                    // let browser handle the link
-    }
-    const row = e.target.closest(".cp-row");
-    if (row) {
-      const email = row.dataset.email;
-      if (cpExpanded.has(email)) cpExpanded.delete(email);
-      else cpExpanded.add(email);
-      renderContacts();
-    }
-  });
-
-  refreshGmailStatus().then(() => {
-    if (!gmailPanel.hidden) loadCachedItems();
-  });
-  refreshSlackStatus();
-  refreshFreshserviceStatus();
-  refreshOtterStatus();
-  renderItems();
-
-  // Source-pill filter (clicks on the per-source counter strip)
-  const srcCountsEl = document.getElementById("source-counts");
-  if (srcCountsEl) {
-    srcCountsEl.addEventListener("click", (e) => {
-      const pill = e.target.closest(".src-pill");
-      if (!pill) return;
-      const target = pill.dataset.src;
-      activeSource = activeSource === target ? "all" : target;
-      renderItems();
-    });
-  }
-
-  if (new URLSearchParams(location.search).get("gmail") === "connected") {
-    history.replaceState(null, "", "/");
-  }
-
-  const es = new EventSource("/api/sse/stream");
-
-  es.addEventListener("heartbeat", (e) => {
-    const data = JSON.parse(e.data);
-    counter.textContent = data.n;
-    status.classList.remove("err");
-    statusLabel.textContent = "live";
-  });
-
-  es.addEventListener("auth_changed", (e) => {
-    refreshGmailStatus();
-  });
-
-  es.addEventListener("gmail_item", (e) => {
-    pushItem(JSON.parse(e.data));
-  });
-
-  es.addEventListener("slack_item", (e) => {
-    pushItem(JSON.parse(e.data));
-  });
-
-  es.addEventListener("slack_linearized", (e) => {
-    const d = JSON.parse(e.data);
-    const item = recent.find(i => i.msg_id === d.msg_id);
-    if (item && !item.linear_id) {
-      item.linear_id = d.linear_id;
-      item.linear_url = d.linear_url;
-      item.linear_identifier = d.linear_identifier;
-      renderItems();
-    }
-  });
-
-  es.addEventListener("slack_poll_complete", (e) => {
-    const d = JSON.parse(e.data);
-    /* Header meta is updated by pollNow's response handler; this is just
-       diagnostic for cross-tab visibility. */
-    console.debug("slack_poll_complete", d);
-  });
-
-  es.addEventListener("freshservice_item", (e) => {
-    pushItem(JSON.parse(e.data));
-  });
-
-  es.addEventListener("freshservice_linearized", (e) => {
-    const d = JSON.parse(e.data);
-    const item = recent.find(i => i.msg_id === d.msg_id);
-    if (item && !item.linear_id) {
-      item.linear_id = d.linear_id;
-      item.linear_url = d.linear_url;
-      item.linear_identifier = d.linear_identifier;
-      renderItems();
-    }
-  });
-
-  es.addEventListener("freshservice_poll_complete", (e) => {
-    const d = JSON.parse(e.data);
-    console.debug("freshservice_poll_complete", d);
-  });
-
-  es.addEventListener("otter_item", (e) => {
-    pushItem(JSON.parse(e.data));
-  });
-
-  es.addEventListener("otter_linearized", (e) => {
-    const d = JSON.parse(e.data);
-    const item = recent.find(i => i.msg_id === d.msg_id);
-    if (item && !item.linear_id) {
-      item.linear_id = d.linear_id;
-      item.linear_url = d.linear_url;
-      item.linear_identifier = d.linear_identifier;
-      renderItems();
-    }
-  });
-
-  es.addEventListener("otter_poll_complete", (e) => {
-    const d = JSON.parse(e.data);
-    console.debug("otter_poll_complete", d);
-  });
-
-  es.addEventListener("gmail_poll_complete", (e) => {
-    const d = JSON.parse(e.data);
-    gmailMeta.textContent = `+${d.new_count} new · ${d.queried_total} in window · ${d.total_seen_all_time} seen total`;
-  });
-
-  es.addEventListener("gmail_linearized", (e) => {
-    const d = JSON.parse(e.data);
-    const item = recent.find(i => i.msg_id === d.msg_id);
-    if (item && !item.linear_id) {
-      item.linear_id = d.linear_id;
-      item.linear_url = d.linear_url;
-      item.linear_identifier = d.linear_identifier;
-      renderItems();
-    }
-  });
-
-  // ─── Phase 1.7 SSE listeners: handled / snoozed sync ────
-  function applyHandled(msgId, handledAt) {
-    const item = recent.find(i => i.msg_id === msgId);
-    if (item) { item.handled_at = handledAt; renderItems(); }
-  }
-  function applyUnhandled(msgId) {
-    const item = recent.find(i => i.msg_id === msgId);
-    if (item) { delete item.handled_at; renderItems(); }
-  }
-  function applySnoozed(msgId, snoozeUntil) {
-    const item = recent.find(i => i.msg_id === msgId);
-    if (item) { item.snooze_until = snoozeUntil; renderItems(); }
-  }
-  function applyUnsnoozed(msgId) {
-    const item = recent.find(i => i.msg_id === msgId);
-    if (item) { delete item.snooze_until; renderItems(); }
-  }
-  function applyLinearClosed(msgId, closedAt, stateName) {
-    const item = recent.find(i => i.msg_id === msgId);
-    if (item) { item.linear_closed_at = closedAt; item.linear_state = stateName; renderItems(); }
-  }
-  for (const src of ["gmail", "slack", "freshservice", "otter"]) {
-    es.addEventListener(`${src}_handled`, (e) => {
-      const d = JSON.parse(e.data);
-      applyHandled(d.msg_id, d.handled_at);
-    });
-    es.addEventListener(`${src}_unhandled`, (e) => {
-      const d = JSON.parse(e.data);
-      applyUnhandled(d.msg_id);
-    });
-    es.addEventListener(`${src}_snoozed`, (e) => {
-      const d = JSON.parse(e.data);
-      applySnoozed(d.msg_id, d.snooze_until);
-    });
-    es.addEventListener(`${src}_unsnoozed`, (e) => {
-      const d = JSON.parse(e.data);
-      applyUnsnoozed(d.msg_id);
-    });
-    es.addEventListener(`${src}_linear_closed`, (e) => {
-      const d = JSON.parse(e.data);
-      applyLinearClosed(d.msg_id, d.closed_at, d.state_name);
-    });
-  }
-
-  es.onerror = () => {
-    status.classList.add("err");
-    statusLabel.textContent = "disconnected — retrying";
-  };
+/* ===================== BOOT ===================== */
+async function boot() {
+  render();  // paint empty shell immediately
+  startSSE();
+  await Promise.all([
+    ...SOURCES.map(fetchItems),
+    fetchApprovals(), fetchAuth(), fetchWatchlist(), fetchMeta(),
+  ]);
+  renderWatchlist();
+  const first = orderedVisible()[0];
+  if (first) state.selKey = first.key;
+  render();
+  // periodic safety refresh for things SSE doesn't cover
+  setInterval(async () => {
+    await fetchApprovals(); await fetchMeta();
+    if (state.view === 'approvals' || state.view === 'system') render(); else renderChrome();
+  }, 60000);
+}
+boot();
 </script>
 </body>
 </html>

@@ -74,6 +74,38 @@ def test_no_action_without_approved_draft(sp):
     assert rows and all(r["status"] in ("approved", "edited") for r in rows)
 
 
+def test_edit_then_approve_records_edited_feedback(sp):
+    did = _draft(sp, payload="original text here")
+    executor.edit(did, "completely different reply")
+    executor.approve(did)
+    with sp._lock:
+        fb = sp._conn.execute(
+            "SELECT verdict, edit_distance FROM feedback WHERE draft_id=?", (did,)
+        ).fetchone()
+    assert fb["verdict"] == "edited" and fb["edit_distance"] > 0
+    # what was approved is the edited text; original preserved for the record
+    d = sp.get_draft(did)
+    assert d["payload"] == "completely different reply"
+    assert d["original_payload"] == "original text here"
+
+
+def test_unedited_approve_stays_clean(sp):
+    did = _draft(sp)
+    executor.approve(did)
+    with sp._lock:
+        fb = sp._conn.execute("SELECT verdict FROM feedback WHERE draft_id=?", (did,)).fetchone()
+    assert fb["verdict"] == "approved_clean"
+
+
+def test_edit_guards(sp):
+    did = _draft(sp)
+    with pytest.raises(executor.ExecutorError):
+        executor.edit(did, "   ")                 # empty
+    executor.approve(did)
+    with pytest.raises(executor.ExecutorError):
+        executor.edit(did, "too late")            # not pending anymore
+
+
 def test_live_send_is_not_built(sp):
     with pytest.raises(NotImplementedError):
         executor._send_live("slack", "C1:1.2", "hi")

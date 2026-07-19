@@ -13,6 +13,7 @@ Guarantees already in force:
 """
 from __future__ import annotations
 
+import difflib
 import logging
 
 from haven.spine import spine
@@ -61,12 +62,39 @@ def approve(draft_id: int, actor: str = "gt") -> dict:
     )
     if created:
         spine.set_draft_status(draft_id, "approved")
-        spine.record_feedback(draft_id, "approved_clean")
+        # Honest feedback verdict: edited if GT changed the agent's text before
+        # approving, with a character-level edit distance for the quality signal.
+        orig = draft.get("original_payload")
+        if orig is not None and orig != draft["payload"]:
+            spine.record_feedback(draft_id, "edited", _edit_distance(orig, draft["payload"]))
+        else:
+            spine.record_feedback(draft_id, "approved_clean")
         spine.audit(actor, "draft_approved", "draft", draft_id, {"action_id": action_id})
         spine.audit("system", "action_executed", "action", action_id,
                     {"status": status, "dry_run": DRY_RUN})
     return {"draft_id": draft_id, "action_id": action_id, "created": created,
             "status": status, "dry_run": DRY_RUN}
+
+
+def _edit_distance(a: str, b: str) -> int:
+    """Characters changed between original and edited draft (stdlib difflib —
+    insert/delete/replace opcode spans, close enough for a feedback signal)."""
+    sm = difflib.SequenceMatcher(None, a, b)
+    return sum(max(i2 - i1, j2 - j1) for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != "equal")
+
+
+def edit(draft_id: int, new_payload: str, actor: str = "gt") -> dict:
+    """Edit a PENDING draft's text. What's approved is what would be sent."""
+    draft = spine.get_draft(draft_id)
+    if draft is None:
+        raise ExecutorError(f"draft {draft_id} not found")
+    if draft["status"] != "pending":
+        raise ExecutorError(f"draft {draft_id} is {draft['status']}; only pending drafts can be edited")
+    new_payload = (new_payload or "").strip()
+    if not new_payload:
+        raise ExecutorError("edited draft cannot be empty")
+    spine.edit_draft(draft_id, new_payload)
+    return {"draft_id": draft_id, "payload": new_payload, "edited": True}
 
 
 def reject(draft_id: int, reason: str = "", actor: str = "gt") -> dict:

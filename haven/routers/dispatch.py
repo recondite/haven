@@ -48,6 +48,15 @@ async def approve(draft_id: int) -> dict:
         raise HTTPException(400, str(e))
 
 
+@router.post("/approvals/{draft_id}/edit")
+async def edit(draft_id: int, payload: dict) -> dict:
+    """Edit a pending draft's text before approving. Body: {"payload": "..."}."""
+    try:
+        return executor.edit(draft_id, payload.get("payload", ""))
+    except executor.ExecutorError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/approvals/{draft_id}/reject")
 async def reject(draft_id: int, payload: dict | None = None) -> dict:
     try:

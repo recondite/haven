@@ -102,6 +102,11 @@ _MIGRATIONS: list[str] = [
         created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
     """,
+    # v3 — draft editing: keep the agent's original text so the approval gate can
+    # record an honest edited-vs-clean verdict + edit distance (feedback signal).
+    """
+    ALTER TABLE draft ADD COLUMN original_payload TEXT;
+    """,
 ]
 
 _KIND_BY_SOURCE = {
@@ -272,6 +277,18 @@ class Spine:
                 "SELECT * FROM draft WHERE status=? ORDER BY created_at DESC", (status,)
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def edit_draft(self, draft_id: int, new_payload: str) -> None:
+        """Replace a pending draft's payload, preserving the agent's original
+        (first edit wins the snapshot) so approve can score the edit."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE draft SET original_payload = COALESCE(original_payload, payload), "
+                "payload = ?, updated_at = datetime('now') WHERE id = ?",
+                (new_payload, draft_id),
+            )
+            self._conn.commit()
+        self.audit("gt", "draft_edited", "draft", draft_id, {"chars": len(new_payload)})
 
     def set_draft_status(self, draft_id: int, status: str) -> None:
         with self._lock:

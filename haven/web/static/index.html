@@ -173,6 +173,7 @@
   .appr-time{margin-left:auto;font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums;flex:none}
   .appr-preview{font-size:12px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .draft-box{background:var(--panel);border:1px solid var(--border-2);border-radius:9px;padding:13px 14px;font-size:12.6px;line-height:1.65;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:6px}
+  .draft-edit{width:100%;min-height:170px;background:var(--panel);border:1px solid var(--accent);border-radius:9px;padding:13px 14px;font:inherit;font-size:12.6px;line-height:1.65;color:var(--text);resize:vertical;margin-bottom:6px;outline:none}
   .draft-tools{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:11px;color:var(--faint)}
   .evi{border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:7px;background:var(--panel)}
   .evi-l1{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--text-2);flex-wrap:wrap}
@@ -336,6 +337,7 @@ const state = {
   llm: null, health: null,
   hideNoise: true, hideHandled: true,
   srcOff: new Set(),   // sources filtered OUT of the inbox (empty = show all)
+  editingDraft: null,  // draft id currently being edited in the approvals pane
   selKey: null,          // inbox selection: "source|msg_id"
   selDraft: null,        // approvals selection: draft id
   sse: { live: false, lastEvent: 0 },
@@ -770,16 +772,21 @@ function renderApprDetail() {
   dp.innerHTML = `<div class="dp">
     <div class="dp-eyebrow">${SRC[d.kind] ? glyph(d.kind) : ''}<span style="font-size:11.5px;color:var(--muted)">draft #${d.id} · ${esc(d.kind || '')}${d.created_at ? ' · ' + esc(d.created_at) : ''}</span></div>
     <h2 class="dp-subject">${esc(draftTitle(d))}</h2>
-    <div class="sec-title">Draft</div>
-    <div class="draft-box">${esc(d.payload || '')}</div>
+    <div class="sec-title">Draft${d.original_payload && d.original_payload !== d.payload ? ' <span style="color:var(--warn);font-size:10px">· edited</span>' : ''}</div>
+    ${state.editingDraft === d.id
+      ? `<textarea class="draft-edit" id="draft-edit-ta">${esc(d.payload || '')}</textarea>`
+      : `<div class="draft-box">${esc(d.payload || '')}</div>`}
     <div class="draft-tools"><span>1 approval = 1 send · nothing sends without you</span><span>${(d.payload || '').length} chars</span></div>
     <div class="sec-title">Evidence · ${ev.length} cited item${ev.length === 1 ? '' : 's'}</div>
     ${ev.length ? ev.map(e => `<div class="evi"><div class="evi-l1"><span class="evi-cite">${esc(e.msg_id || '')}</span>${SRC[e.source] ? glyph(e.source) : ''}<span>${esc(e.source || '')}</span></div>${e.excerpt ? `<div class="evi-q">${esc(e.excerpt)}</div>` : ''}</div>`).join('')
                : '<div style="font-size:11.5px;color:var(--faint)">No evidence attached to this draft.</div>'}
     <div class="dp-actions" style="margin-top:18px">
-      <button class="btn btn-ok" data-appr="approve">✓ Approve${state.approvals.dry_run ? ' (dry-run)' : ' & send'}</button>
-      <button class="btn btn-danger" data-appr="reject">✕ Reject</button>
-      <button class="btn btn-ghost" disabled title="Draft editing API not built yet">✎ Edit before send — soon</button>
+    ${state.editingDraft === d.id
+      ? `<button class="btn btn-ok" data-appr="save">✓ Save edit</button>
+         <button class="btn btn-ghost" data-appr="cancel">Cancel</button>`
+      : `<button class="btn btn-ok" data-appr="approve">✓ Approve${state.approvals.dry_run ? ' (dry-run)' : ' & send'}</button>
+         <button class="btn btn-danger" data-appr="reject">✕ Reject</button>
+         <button class="btn btn-ghost" data-appr="edit">✎ Edit before send</button>`}
     </div>
     ${state.approvals.dry_run ? '<div style="margin-top:12px;font-size:11px;color:var(--warn)">⚠ DRY-RUN — Approve will log the send without transmitting.</div>' : ''}
   </div>`;
@@ -787,7 +794,14 @@ function renderApprDetail() {
 }
 async function approvalAction(id, act) {
   try {
-    if (act === 'approve') {
+    if (act === 'edit') { state.editingDraft = id; render(); return; }
+    if (act === 'cancel') { state.editingDraft = null; render(); return; }
+    if (act === 'save') {
+      const text = document.getElementById('draft-edit-ta').value;
+      await api(`/api/approvals/${id}/edit`, { method: 'POST', body: JSON.stringify({ payload: text }) });
+      state.editingDraft = null;
+      toast('Draft updated — approve to send the edited text');
+    } else if (act === 'approve') {
       await api(`/api/approvals/${id}/approve`, { method: 'POST' });
       toast(state.approvals.dry_run ? 'Approved — send simulated (dry-run)' : 'Approved — sent');
     } else {

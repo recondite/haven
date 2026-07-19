@@ -49,6 +49,11 @@ LLM_MODEL_CHEAP = os.getenv("HAVEN_LLM_MODEL_CHEAP", "claude-haiku-4-5")
 LOCAL_LLM_BASE_URL = os.getenv("HAVEN_LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
 LOCAL_LLM_MODEL = os.getenv("HAVEN_LOCAL_LLM_MODEL", "llama3.1")
 
+# Scoring concurrency. Local single-GPU engines (LM Studio) 400 on concurrent
+# long-context predictions ("Engine protocol predict" error), so serialize on
+# local; Claude handles parallelism fine. Override with HAVEN_SCORE_CONCURRENCY.
+SCORE_CONCURRENCY = int(os.getenv("HAVEN_SCORE_CONCURRENCY", "1" if LLM_MODE == "local" else "5"))
+
 # Google / Gmail
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")

@@ -172,7 +172,8 @@ async def run(force: bool = False) -> dict:
     scores: list[dict] = []
     if items_to_score:
         log.info("LLM scoring: %d items, concurrency 5", len(items_to_score))
-        scores = await scoring.score_emails_concurrent(items_to_score, max_concurrent=5)
+        from haven import config
+        scores = await scoring.score_emails_concurrent(items_to_score, max_concurrent=config.SCORE_CONCURRENCY)
     score_by_id = {item.msg_id: score for item, score in zip(items_to_score, scores)}
 
     # Pass E: build response — only items the user should see.

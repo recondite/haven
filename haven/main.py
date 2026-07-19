@@ -33,6 +33,7 @@ from haven.routers import (
     gmail,
     identity,
     items,
+    knowledge,
     otter,
     slack,
     spine,
@@ -288,6 +289,7 @@ app.include_router(spine.router)
 app.include_router(dispatch.router)
 app.include_router(identity.router)
 app.include_router(evals.router)
+app.include_router(knowledge.router)
 
 
 # ─── Static UI (mounted last so /api/* and /oauth/* take precedence) ───

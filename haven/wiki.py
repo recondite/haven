@@ -1,5 +1,10 @@
 """LLM-maintained curated wiki.
 
+DEPRECATED (plan v4 Phase 3, 2026-07-19): SecondBrain is now Haven's single
+knowledge store — read via haven/knowledge.py (SecondBrain-first search) and
+written via the approval-gated ingest flow (POST /api/knowledge/ingest). This
+private data/wiki store is retired; kept read-only for back-compat, not extended.
+
 Pattern from the LLM Wiki idea: a persistent, compounding knowledge base where
 the LLM does all the bookkeeping. Garth marks important emails; Haven hands the
 email + the current wiki state + the schema to Claude; Claude returns the file

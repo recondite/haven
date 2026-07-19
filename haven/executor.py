@@ -27,6 +27,7 @@ import asyncio
 import base64
 import difflib
 import logging
+import re
 from email.message import EmailMessage
 
 from haven import config
@@ -63,6 +64,55 @@ async def _slack_post(target: str, payload: str) -> dict:
         await client.aclose()
     return {"provider": "slack", "channel": channel, "ts": resp.get("ts"),
             "thread_ts": ts}
+
+
+# SecondBrain ingest (Phase 3). A local, schema-validated, approval-gated write —
+# NEW pages only (never overwrites/deletes: ground rule #1 for SecondBrain).
+_WIKI_TYPES = {"person", "company", "team", "concept", "project", "source",
+               "analysis", "overview", "tool"}
+_FM_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
+_H1_RE = re.compile(r"^#\s+\S", re.M)
+
+
+def validate_wiki(payload: str, target: str) -> None:
+    """Raise ExecutorError unless the draft is a schema-valid, new SecondBrain
+    page. Called before an ingest draft can be approved."""
+    m = _FM_RE.match(payload or "")
+    if not m:
+        raise ExecutorError("wiki draft missing YAML frontmatter (--- ... ---)")
+    fm = m.group(1)
+    tm = re.search(r"^type:\s*(\w+)", fm, re.M)
+    if not tm or tm.group(1) not in _WIKI_TYPES:
+        raise ExecutorError(f"wiki frontmatter needs type in {sorted(_WIKI_TYPES)}")
+    for key in ("created", "updated"):
+        if not re.search(rf"^{key}:\s*\d{{4}}-\d{{2}}-\d{{2}}", fm, re.M):
+            raise ExecutorError(f"wiki frontmatter needs {key}: YYYY-MM-DD")
+    if not _H1_RE.search(payload):
+        raise ExecutorError("wiki draft needs an H1 (# Title)")
+    rel = (target or "").replace("\\", "/")
+    if not rel.startswith("wiki/") or not rel.endswith(".md"):
+        raise ExecutorError("wiki target must be a wiki/...md path")
+    dest = (config.SECONDBRAIN_DIR / rel).resolve()
+    try:
+        dest.relative_to((config.SECONDBRAIN_DIR / "wiki").resolve())
+    except ValueError:
+        raise ExecutorError("wiki target escapes the wiki/ tree")
+    if dest.exists():
+        raise ExecutorError(f"page already exists: {rel} — updates go through the drift flow, not ingest")
+
+
+async def _wiki_write(target: str, payload: str) -> dict:
+    """Write a new SecondBrain page + append to the append-only log. New pages
+    only — validate_wiki (run at approve time) guarantees it doesn't exist."""
+    rel = target.replace("\\", "/")
+    dest = config.SECONDBRAIN_DIR / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(payload, encoding="utf-8")
+    log_path = config.SECONDBRAIN_DIR / "wiki" / "log.md"
+    if log_path.exists():
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(f"\n- Haven ingest: created [[{dest.stem}]] ({rel})\n")
+    return {"provider": "secondbrain", "path": rel}
 
 
 async def _gmail_send_reply(target: str, payload: str) -> dict:
@@ -107,7 +157,7 @@ async def _gmail_send_reply(target: str, payload: str) -> dict:
     return {"provider": "gmail", "id": sent.get("id"), "threadId": sent.get("threadId"), "to": to}
 
 
-_TRANSPORTS = {"slack": _slack_post, "email": _gmail_send_reply}
+_TRANSPORTS = {"slack": _slack_post, "email": _gmail_send_reply, "wiki": _wiki_write}
 
 
 async def approve(draft_id: int, actor: str = "gt") -> dict:
@@ -119,6 +169,8 @@ async def approve(draft_id: int, actor: str = "gt") -> dict:
         raise ExecutorError(f"draft {draft_id} was rejected; cannot approve")
     if draft["kind"] not in ALLOWED_KINDS:
         raise ExecutorError(f"draft {draft_id} has disallowed kind {draft['kind']!r}")
+    if draft["kind"] == "wiki":
+        validate_wiki(draft["payload"], draft["target"])  # schema-invalid ingest can't be approved
 
     dry = is_dry_run()
     initial_status = "dry_run" if dry else "sending"

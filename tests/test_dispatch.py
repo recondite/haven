@@ -173,11 +173,50 @@ def test_crash_mid_send_surfaces_needs_verify(sp, live):
 
 
 def test_transports_have_no_delete_verbs():
-    """Ground rule #1: the executor's only outbound verbs are post + send-reply."""
-    assert set(executor._TRANSPORTS) == {"slack", "email"}
+    """Ground rule #1: outbound verbs are post + send-reply + wiki-write only."""
+    assert set(executor._TRANSPORTS) == {"slack", "email", "wiki"}
     src = inspect.getsource(executor)
-    for banned in (".delete(", "chat.delete", "batchDelete", "messages.trash", ".trash("):
+    for banned in (".delete(", "chat.delete", "batchDelete", "messages.trash", ".trash(", "unlink", "rmtree"):
         assert banned not in src, f"executor source contains banned verb {banned!r}"
+
+
+# ─── wiki ingest schema gate ─────────────────────────────
+_GOOD_WIKI = ("---\ntype: concept\ntags: [cpo]\ncreated: 2026-07-19\nupdated: 2026-07-19\n---\n\n"
+              "# Co-packaged optics\n\nCPO integrates optics beside compute.\n")
+
+
+def test_wiki_schema_gate_blocks_bad_drafts(sp):
+    job = sp.create_job("ingest", "cli", "ingest")
+    bad_fm = sp.create_draft(job, "wiki", "wiki/concepts/x.md", "# No frontmatter\n\nbody")
+    with pytest.raises(executor.ExecutorError):
+        run(executor.approve(bad_fm))
+    bad_target = sp.create_draft(job, "wiki", "notwiki/x.md", _GOOD_WIKI)
+    with pytest.raises(executor.ExecutorError):
+        run(executor.approve(bad_target))
+
+
+def test_wiki_ingest_writes_on_approve(sp, live, tmp_path, monkeypatch):
+    from haven import config
+    from haven import executor as ex
+    # point SecondBrain at a temp dir with a wiki/ + log.md
+    sb = tmp_path / "SecondBrain"
+    (sb / "wiki").mkdir(parents=True)
+    (sb / "wiki" / "log.md").write_text("# Log\n", encoding="utf-8")
+    monkeypatch.setattr(config, "SECONDBRAIN_DIR", sb)
+    # live fixture patched _TRANSPORTS to fakes; restore the real wiki writer
+    monkeypatch.setitem(ex._TRANSPORTS, "wiki", ex._wiki_write)
+
+    job = sp.create_job("ingest", "cli", "ingest")
+    did = sp.create_draft(job, "wiki", "wiki/concepts/cpo.md", _GOOD_WIKI)
+    res = run(ex.approve(did))
+    assert res["status"] == "sent"
+    written = (sb / "wiki" / "concepts" / "cpo.md").read_text(encoding="utf-8")
+    assert "# Co-packaged optics" in written
+    assert "Haven ingest" in (sb / "wiki" / "log.md").read_text(encoding="utf-8")
+    # second identical ingest must refuse (page now exists — never overwrite)
+    did2 = sp.create_draft(job, "wiki", "wiki/concepts/cpo.md", _GOOD_WIKI)
+    with pytest.raises(executor.ExecutorError):
+        run(ex.approve(did2))
 
 
 # ─── agent dispatch ──────────────────────────────────────

@@ -378,6 +378,16 @@ class Spine:
             )
             self._conn.commit()
 
+    def edited_drafts(self) -> list[dict]:
+        """Drafts GT edited before approving (original_payload vs payload) — the
+        raw signal for style distillation (M1)."""
+        with self._lock:
+            return [dict(r) for r in self._conn.execute(
+                "SELECT d.id, d.kind, d.original_payload, d.payload, f.edit_distance "
+                "FROM draft d JOIN feedback f ON f.draft_id = d.id "
+                "WHERE f.verdict = 'edited' AND d.original_payload IS NOT NULL "
+                "ORDER BY d.id DESC").fetchall()]
+
     def get_action_for_draft(self, draft_id: int) -> dict | None:
         with self._lock:
             row = self._conn.execute("SELECT * FROM action WHERE draft_id=?", (draft_id,)).fetchone()

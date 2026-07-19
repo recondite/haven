@@ -15,9 +15,14 @@ reported separately, not gated hard.
 """
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
-from haven import runtime, scoring
+from haven import config, runtime, scoring
+
+# Promoted cases — real triaged mail GT confirmed, appended over time (M1). Kept
+# separate from the seed GOLDEN so the two accuracies can be reported apart.
+_PROMOTED_PATH = config.DATA_DIR / "state" / "eval-cases.json"
 
 
 def _item(**kw) -> SimpleNamespace:
@@ -117,13 +122,92 @@ def retrieval_eval() -> dict:
     }
 
 
+_STYLE_MIN_EDITS = 5  # distillation stays dormant until this many edits exist
+
+
+async def distill_style() -> dict:
+    """Distill recurring edit patterns into a proposed drafting-style wiki page
+    (M1, Loop B). Dormant until >= _STYLE_MIN_EDITS edited drafts exist; then
+    summarizes original-vs-approved pairs into ONE approval-gated analysis page.
+    Never writes directly — proposes through the same ingest gate."""
+    from haven import executor, knowledge
+    from haven.spine import spine
+
+    edits = spine.edited_drafts()
+    if len(edits) < _STYLE_MIN_EDITS:
+        return {"ready": False, "edits": len(edits), "need": _STYLE_MIN_EDITS}
+
+    pairs = "\n\n".join(
+        f"AGENT WROTE:\n{e['original_payload'][:600]}\n\nGARTH APPROVED:\n{e['payload'][:600]}"
+        for e in edits[:20])
+    prompt = (
+        "Below are pairs of an AI-drafted reply and the version Garth Thompson "
+        "actually approved after editing. Infer his consistent drafting "
+        "preferences (tone, length, structure, phrases he adds/removes, sign-off). "
+        "Output a concise markdown '## Key facts' style guide of imperative rules "
+        "a future draft agent should follow. Only patterns evidenced across "
+        "multiple pairs; no speculation.\n\n" + pairs)
+    body = (await runtime.call(prompt, timeout=180)).strip()
+    title = "GT drafting style (distilled from approvals)"
+    target = knowledge.ingest_target(title, "analysis")
+    page = knowledge.build_page(title, "analysis", ["haven-ingest", "drafting-style"], body)
+    try:
+        executor.validate_wiki(page, target)
+    except executor.ExecutorError as e:
+        return {"ready": True, "error": f"proposal failed validation: {e}"}
+    from haven.spine import spine as _sp
+    if target and (config.SECONDBRAIN_DIR / target).exists():
+        # updates go through curation, not a second ingest — surface, don't dup
+        return {"ready": True, "note": "style page already exists; refine it via curation",
+                "target": target}
+    draft_id = _sp.create_draft(None, "wiki", target, page,
+                                evidence=[{"source": "style-distill", "from_edits": len(edits)}])
+    return {"ready": True, "draft_id": draft_id, "target": target, "from_edits": len(edits)}
+
+
+def load_promoted() -> list[dict]:
+    """Promoted real-mail cases: {name, item(fields dict), tag, urgency}."""
+    if not _PROMOTED_PATH.exists():
+        return []
+    try:
+        return json.loads(_PROMOTED_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def promote_case(fields: dict, tag: str, urgency: str, name: str) -> int:
+    """Append a confirmed case (append-only). Dedup by name. Returns new total."""
+    tag = scoring._coerce(tag, scoring.VALID_TAGS, "fyi")
+    urgency = scoring._coerce(urgency, scoring.VALID_URGENCY, "low")
+    cases = load_promoted()
+    if any(c["name"] == name for c in cases):
+        return len(cases)
+    cases.append({"name": name, "item": fields, "tag": tag, "urgency": urgency})
+    _PROMOTED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _PROMOTED_PATH.write_text(json.dumps(cases, indent=1), encoding="utf-8")
+    return len(cases)
+
+
+def _all_cases() -> list[dict]:
+    """Seed GOLDEN + promoted (promoted 'item' dicts become SimpleNamespaces)."""
+    out = [dict(g, seed=True) for g in GOLDEN]
+    for c in load_promoted():
+        out.append({"name": c["name"], "item": _item(**c["item"]),
+                    "tag": c["tag"], "urgency": c["urgency"], "seed": False})
+    return out
+
+
 async def run_eval(rt: runtime.Runtime | None = None) -> dict:
-    """Score every golden case through the active (or given) runtime; report
-    tag/urgency accuracy. On-demand (a full run hits the model N times)."""
+    """Score every case (seed + promoted) through the active runtime; report
+    tag/urgency accuracy + the delta vs the previous run (the regression signal).
+    On-demand (hits the model once per case)."""
+    from haven.spine import spine
+
     rt = rt or runtime.get_runtime()
+    all_cases = _all_cases()
     cases = []
-    tag_ok = urg_ok = 0
-    for g in GOLDEN:
+    tag_ok = urg_ok = seed_ok = seed_n = 0
+    for g in all_cases:
         prompt = scoring.build_email_prompt(g["item"])
         try:
             res = await rt.call_json(prompt, model=scoring.config.LLM_MODEL_CHEAP, timeout=120)
@@ -137,15 +221,26 @@ async def run_eval(rt: runtime.Runtime | None = None) -> dict:
         u_ok = urg == g["urgency"]
         tag_ok += int(t_ok)
         urg_ok += int(u_ok)
-        cases.append({"name": g["name"], "expected_tag": g["tag"], "got_tag": tag,
-                      "tag_ok": t_ok, "expected_urgency": g["urgency"], "got_urgency": urg,
+        if g["seed"]:
+            seed_n += 1
+            seed_ok += int(t_ok)
+        cases.append({"name": g["name"], "seed": g["seed"],
+                      "expected_tag": g["tag"], "got_tag": tag, "tag_ok": t_ok,
+                      "expected_urgency": g["urgency"], "got_urgency": urg,
                       "urgency_ok": u_ok, "error": err})
-    n = len(GOLDEN)
+    n = len(all_cases)
+    tag_acc = round(tag_ok / n, 3) if n else 0.0
+    # Regression delta vs last run (stored in runtime_config).
+    prev = spine.get_runtime_config("eval_scoring_last_tag_acc")
+    delta = round(tag_acc - float(prev), 3) if prev is not None else None
+    spine.set_runtime_config("eval_scoring_last_tag_acc", str(tag_acc), by="eval")
     return {
         "runtime": rt.name, "model": (scoring.config.LOCAL_LLM_MODEL
                                       if rt.name == "local" else scoring.config.LLM_MODEL_CHEAP),
-        "n": n,
-        "tag_accuracy": round(tag_ok / n, 3),
-        "urgency_accuracy": round(urg_ok / n, 3),
+        "n": n, "seed_n": seed_n, "promoted_n": n - seed_n,
+        "tag_accuracy": tag_acc,
+        "seed_tag_accuracy": round(seed_ok / seed_n, 3) if seed_n else 0.0,
+        "urgency_accuracy": round(urg_ok / n, 3) if n else 0.0,
+        "delta_vs_last": delta,
         "cases": cases,
     }

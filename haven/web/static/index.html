@@ -836,6 +836,7 @@ function renderItemDetail() {
         : `<button class="btn btn-ghost" data-act="linear">▤ Capture to Linear</button>`}
       <button class="btn btn-primary" data-act="draft" ${canDraftReply ? '' : 'disabled title="Draft agents for this source ship soon — Slack + Gmail for now"'}>✎ Draft reply${canDraftReply ? '' : ' (soon)'}</button>
       <button class="btn btn-ghost" data-act="secondbrain" title="Draft this item into SecondBrain — review in Approvals before it writes">→ SecondBrain</button>
+      ${it.source === 'gmail' ? `<button class="btn btn-ghost" data-act="eval" title="Confirm this item's tag/urgency as a golden eval case">＋ Eval case</button>` : ''}
     </div>
   </div>`;
   dp.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => itemAction(it, b.dataset.act)));
@@ -884,6 +885,10 @@ async function itemAction(it, act) {
       const res = await api('/api/knowledge/ingest', { method: 'POST', body: JSON.stringify(ingestPayload(it)) });
       await fetchApprovals();
       toast(`Queued for SecondBrain (draft #${res.draft_id}) — review in Approvals`); render();
+    } else if (act === 'eval') {
+      const res = await api('/api/eval/promote', { method: 'POST',
+        body: JSON.stringify({ source: it.source, msg_id: it.id, tag: r.tag, urgency: r.urgency }) });
+      toast(`Added to eval set (${res.total_promoted} promoted) — tag=${r.tag}/${r.urgency}`);
     }
   } catch (e) { toast(act + ' failed: ' + e.message, true); }
 }

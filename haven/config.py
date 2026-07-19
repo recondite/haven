@@ -15,6 +15,11 @@ load_dotenv(ROOT / ".env")
 HAVEN_HOST = os.getenv("HAVEN_HOST", "127.0.0.1")
 HAVEN_PORT = int(os.getenv("HAVEN_PORT", "8765"))
 
+# Auth — bearer/basic token on every endpoint. If unset, auth is DISABLED
+# (localhost-only dev). Set it to enforce. Browser uses Basic (native prompt,
+# works with EventSource); API clients use `Authorization: Bearer <token>`.
+HAVEN_AUTH_TOKEN = os.getenv("HAVEN_AUTH_TOKEN")
+
 # Quiet hours — no automatic polls fire in this local-time window (manual
 # "Poll now" still works). Also used as the wake hour for the "tomorrow" snooze.
 QUIET_HOURS_START = int(os.getenv("HAVEN_QUIET_HOURS_START", "0"))   # midnight
@@ -24,9 +29,16 @@ QUIET_HOURS_END = int(os.getenv("HAVEN_QUIET_HOURS_END", "7"))       # 7 AM (exc
 KNOWN_SOURCES = ("gmail", "slack", "freshservice", "otter")
 
 # LLM
+# LLM_MODE selects the runtime backend: "cli"/"claude" -> Claude CLI shell-out,
+# "local" -> OpenAI-compatible local endpoint (Ollama / LM Studio).
 LLM_MODE = os.getenv("HAVEN_LLM_MODE", "cli")
 LLM_MODEL = os.getenv("HAVEN_LLM_MODEL", "claude-sonnet-4-6")
 LLM_MODEL_CHEAP = os.getenv("HAVEN_LLM_MODEL_CHEAP", "claude-haiku-4-5")
+
+# Local LLM backend (used when HAVEN_LLM_MODE=local). Ollama serves an
+# OpenAI-compatible API at :11434/v1; LM Studio at :1234/v1.
+LOCAL_LLM_BASE_URL = os.getenv("HAVEN_LOCAL_LLM_BASE_URL", "http://localhost:11434/v1")
+LOCAL_LLM_MODEL = os.getenv("HAVEN_LOCAL_LLM_MODEL", "llama3.1")
 
 # Google / Gmail
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")

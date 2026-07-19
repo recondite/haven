@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from haven import config, llm
+from haven import config, runtime
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ async def ingest_source(item: dict[str, Any], body_text: str) -> dict[str, Any]:
     prompt = _build_ingest_prompt(schema, state, item, body_text)
 
     # Use the more capable model — ingest is heavy and infrequent.
-    result = await llm.claude_json(prompt, model=config.LLM_MODEL, timeout=180.0)
+    result = await runtime.call_json(prompt, model=config.LLM_MODEL, timeout=180.0)
 
     files = result.get("files") if isinstance(result, dict) else None
     if not isinstance(files, list):

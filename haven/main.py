@@ -25,7 +25,7 @@ from sse_starlette.sse import EventSourceResponse
 from haven import config
 from haven.deps import gmail_auth
 from haven.events import bus
-from haven.routers import contacts, freshservice, gmail, items, otter, slack, wiki
+from haven.routers import contacts, freshservice, gmail, items, otter, slack, spine, wiki
 
 STATIC_DIR = Path(__file__).parent / "web" / "static"
 
@@ -125,6 +125,41 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Haven", version="0.1.0", lifespan=lifespan)
 
 
+# ─── Auth ────────────────────────────────────────────────
+# Bearer/Basic token on every endpoint. Basic makes the browser show a native
+# login prompt and cache the creds (sent on fetch + EventSource same-origin, no
+# login page needed). Bearer is for API/CLI clients. Disabled if no token set.
+def _authorized(request) -> bool:
+    import base64
+    import hmac
+
+    token = config.HAVEN_AUTH_TOKEN
+    header = request.headers.get("authorization", "")
+    scheme, _, cred = header.partition(" ")
+    scheme = scheme.lower()
+    if scheme == "bearer":
+        return hmac.compare_digest(cred, token)
+    if scheme == "basic":
+        try:
+            _, _, pw = base64.b64decode(cred).decode("utf-8", "replace").partition(":")
+        except Exception:
+            return False
+        return hmac.compare_digest(pw, token)
+    return False
+
+
+@app.middleware("http")
+async def require_auth(request, call_next):
+    # Read the token live so tests/.env reloads take effect without reimport.
+    if not config.HAVEN_AUTH_TOKEN or _authorized(request):
+        return await call_next(request)
+    return Response(
+        content="Unauthorized",
+        status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="Haven"'},
+    )
+
+
 async def _heartbeat_loop() -> None:
     """Emit a 2s heartbeat so the UI can show a live indicator until real agents start firing events."""
     i = 0
@@ -173,6 +208,8 @@ async def llm_status() -> dict:
             "preferred": node_pair is not None,
         },
         "model": config.LLM_MODEL,
+        "runtime": config.LLM_MODE,
+        "local_base_url": config.LOCAL_LLM_BASE_URL if config.LLM_MODE == "local" else None,
     }
 
 
@@ -220,6 +257,7 @@ app.include_router(otter.router)
 app.include_router(wiki.router)
 app.include_router(contacts.router)
 app.include_router(items.router)
+app.include_router(spine.router)
 
 
 # ─── Static UI (mounted last so /api/* and /oauth/* take precedence) ───

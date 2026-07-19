@@ -8,7 +8,7 @@ import asyncio
 import logging
 from typing import Any
 
-from haven import llm
+from haven import config, runtime
 from haven.sources.gmail import GmailItem
 
 log = logging.getLogger(__name__)
@@ -154,7 +154,7 @@ async def score_email(item: GmailItem) -> dict[str, Any]:
     try:
         # Haiku is plenty for email triage and ~3x faster than Sonnet — used by default.
         # Bump to LLM_MODEL (Sonnet) only if Haiku quality on a specific email is poor.
-        result = await llm.claude_json(prompt, model=llm.config.LLM_MODEL_CHEAP)
+        result = await runtime.call_json(prompt, model=config.LLM_MODEL_CHEAP)
     except Exception as e:
         log.warning("Score failed for %s: %s", item.msg_id, e)
         return {**DEFAULT_SCORE, "score_error": str(e)[:300]}
@@ -285,7 +285,7 @@ async def score_slack(item: dict) -> dict[str, Any]:
     prompt = build_slack_prompt(item)
     msg_id = item.get("msg_id", "?")
     try:
-        result = await llm.claude_json(prompt, model=llm.config.LLM_MODEL_CHEAP)
+        result = await runtime.call_json(prompt, model=config.LLM_MODEL_CHEAP)
     except Exception as e:
         log.warning("Slack score failed for %s: %s", msg_id, e)
         return {**DEFAULT_SCORE, "score_error": str(e)[:300]}

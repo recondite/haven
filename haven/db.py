@@ -1,10 +1,13 @@
 """SQLite-backed cursor + dedup + cached-payload store. Shared across agents."""
 import json
+import logging
 import sqlite3
 import threading
 from pathlib import Path
 
 from haven import config
+
+log = logging.getLogger("haven")
 
 
 class CursorStore:
@@ -243,6 +246,14 @@ class CursorStore:
                 (source, item_id, json.dumps(payload, default=str)),
             )
             self._conn.commit()
+        # Dual-write into the domain spine (plan v4 Phase 0). Best-effort: the
+        # cache above is authoritative during the migration window, so a spine
+        # write failure must never break the existing path — just log it.
+        try:
+            from haven.spine import spine
+            spine.upsert_item(source, item_id, payload)
+        except Exception:  # noqa: BLE001
+            log.warning("spine dual-write failed for %s/%s", source, item_id, exc_info=True)
 
     def list_cached(self, source: str, limit: int = 200) -> list[dict]:
         with self._lock:

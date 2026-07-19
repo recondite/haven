@@ -117,7 +117,14 @@
   .row{display:flex;align-items:center;gap:8px;padding:16px 14px 16px 13px;min-height:56px;cursor:pointer;border-left:3px solid transparent;position:relative}
   .row:hover{background:var(--panel)}
   .row.sel{background:var(--accent-dim);border-left-color:var(--accent)}
+  .row.checked{background:var(--accent-dim)}
   .row.handled{opacity:.5}
+  .row-check{flex:none;width:18px;text-align:center;color:var(--muted);cursor:pointer;font-size:13px;user-select:none}
+  .row-check:hover{color:var(--text)}
+  .row-check.on{color:var(--accent)}
+  .bulkbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;padding:8px 12px;
+    background:var(--panel-2,#161b26);border-bottom:1px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  .bulkbar .bulkct{font-size:12px;font-weight:650;color:var(--accent);margin-right:4px}
   .row .ubar{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:2px}
   .u-urgent .ubar{background:var(--err)} .u-high .ubar{background:var(--warn)} .u-med .ubar{background:var(--info)} .u-low .ubar{background:var(--faint)}
   .src-glyph{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:800;flex:none;letter-spacing:.02em}
@@ -339,6 +346,7 @@ const state = {
   srcOff: new Set(),   // sources filtered OUT of the inbox (empty = show all)
   editingDraft: null,  // draft id currently being edited in the approvals pane
   people: null, identityCoverage: null,  // People view (lazy-loaded)
+  selected: new Set(),  // multi-select: item keys checked for bulk actions
   selKey: null,          // inbox selection: "source|msg_id"
   selDraft: null,        // approvals selection: draft id
   sse: { live: false, lastEvent: 0 },
@@ -589,7 +597,7 @@ function renderKeymap() {
   let h = '';
   if (state.view === 'inbox') {
     h = km(['j', 'k'], 'navigate') + km(['e'], 'done') + km(['s'], 'snooze 1h') + km(['S'], 'snooze tmrw')
-      + km(['c'], '→ linear') + km(['d'], 'draft reply') + km(['w'], '→ 2nd brain') + km(['n', 'h'], 'noise / handled') + km(['1–4'], 'views');
+      + km(['c'], '→ linear') + km(['d'], 'draft reply') + km(['w'], '→ 2nd brain') + km(['x'], 'select') + km(['n', 'h'], 'noise / handled') + km(['1–4'], 'views');
   } else if (state.view === 'approvals') {
     h = km(['j', 'k'], 'navigate') + km(['a'], 'approve') + km(['r'], 'reject') + km(['1–4'], 'views');
   } else {
@@ -616,7 +624,9 @@ const GROUPS = [
 ];
 function rowHTML(it) {
   const r = it.raw;
-  return `<div class="row u-${it.urg} ${state.selKey === it.key ? 'sel' : ''} ${r.handled_at ? 'handled' : ''}" data-key="${esc(it.key)}">
+  const checked = state.selected.has(it.key);
+  return `<div class="row u-${it.urg} ${state.selKey === it.key ? 'sel' : ''} ${checked ? 'checked' : ''} ${r.handled_at ? 'handled' : ''}" data-key="${esc(it.key)}">
+    <span class="row-check ${checked ? 'on' : ''}" data-check="${esc(it.key)}" title="Select for bulk action">${checked ? '☑' : '☐'}</span>
     <span class="ubar"></span>${glyph(it.source)}
     <span class="row-sender">${esc(it.sender)}</span>
     <span class="row-subj">${esc(it.subject)}${it.snippet && it.snippet !== it.subject ? ` <span class="snip">— ${esc(it.snippet)}</span>` : ''}</span>
@@ -641,10 +651,71 @@ function renderInbox() {
       ? '<div class="empty"><div class="big">✓</div>Inbox zero. Nothing needs you.<br><span style="font-size:11.5px;color:var(--faint)">Adjust the noise / handled filters to see more.</span></div>'
       : '<div class="empty">Loading items…</div>';
   }
-  $('#list-pane').innerHTML = h;
+  // Bulk-action bar shows once anything is checked. Actions reuse the per-item
+  // endpoints in a loop — no bulk API. Only visible items count.
+  const nsel = state.selected.size;
+  const bar = nsel
+    ? `<div class="bulkbar">
+        <span class="bulkct">${nsel} selected</span>
+        <button class="btn btn-ok" data-bulk="done">✓ Done</button>
+        <button class="btn btn-ghost" data-bulk="secondbrain">→ SecondBrain</button>
+        <button class="btn btn-ghost" data-bulk="snooze1h">Snooze 1h</button>
+        <button class="btn btn-ghost" data-bulk="clear" style="margin-left:auto">Clear</button>
+       </div>`
+    : '';
+  $('#list-pane').innerHTML = bar + h;
   $('#list-pane').querySelectorAll('.row[data-key]').forEach(el =>
     el.addEventListener('click', () => { state.selKey = el.dataset.key; render(); }));
+  $('#list-pane').querySelectorAll('[data-check]').forEach(el =>
+    el.addEventListener('click', (e) => { e.stopPropagation(); toggleSelect(el.dataset.check); }));
+  $('#list-pane').querySelectorAll('[data-bulk]').forEach(el =>
+    el.addEventListener('click', () => bulkAction(el.dataset.bulk)));
   renderItemDetail();
+}
+function toggleSelect(key) {
+  if (state.selected.has(key)) state.selected.delete(key); else state.selected.add(key);
+  render();
+}
+async function bulkAction(act) {
+  if (act === 'clear') { state.selected.clear(); render(); return; }
+  // Snapshot the still-existing selected items (skip anything filtered out).
+  const items = [...state.selected].map(findItem).filter(Boolean);
+  if (!items.length) { state.selected.clear(); render(); return; }
+  const label = { done: 'Done', secondbrain: 'SecondBrain', snooze1h: 'Snooze' }[act] || act;
+  let ok = 0, fail = 0;
+  toast(`${label}: applying to ${items.length}…`);
+  for (const it of items) {
+    const base = `/api/items/${it.source}/${pathId(it.id)}`;
+    try {
+      if (act === 'done') {
+        const res = await api(base + '/mark-done', { method: 'POST' }); it.raw.handled_at = res.handled_at;
+      } else if (act === 'snooze1h') {
+        const res = await api(base + '/snooze', { method: 'POST', body: JSON.stringify({ preset: '1h' }) }); it.raw.snooze_until = res.snooze_until;
+      } else if (act === 'secondbrain') {
+        await api('/api/knowledge/ingest', { method: 'POST', body: JSON.stringify(ingestPayload(it)) });
+      }
+      ok++;
+    } catch { fail++; }
+  }
+  state.selected.clear();
+  await fetchApprovals();
+  toast(`${label}: ${ok} done${fail ? `, ${fail} failed` : ''}`, fail > 0);
+  render();
+}
+function ingestPayload(it) {
+  const r = it.raw;
+  const title = (r.subject || r.snippet || `${it.source} item`).slice(0, 120);
+  const sender = r.sender || r.from || '';
+  const body = [
+    sender ? `**From:** ${sender}` : '',
+    r.date ? `**Date:** ${r.date}` : '',
+    r.summary ? `\n${r.summary}` : '',
+    (r.snippet || r.body_text) ? `\n\n${r.snippet || r.body_text}` : '',
+    r.url ? `\n\n[Original source](${r.url})` : '',
+    `\n\n*Captured from ${it.source} via Haven.*`,
+  ].filter(Boolean).join('');
+  return { title, type: 'source', tags: ['ayar-labs', it.source, r.tag].filter(Boolean),
+           body, source: `${it.source}:${it.id}` };
 }
 function kvRow(k, v) { return v ? `<span class="k">${esc(k)}</span><span class="v">${v}</span>` : ''; }
 function renderItemDetail() {
@@ -744,19 +815,7 @@ async function itemAction(it, act) {
       toast(`Draft #${res.draft_id} created — review in Approvals`); render();
     } else if (act === 'secondbrain') {
       toast('Drafting SecondBrain page…');
-      const title = (r.subject || r.snippet || `${it.source} item`).slice(0, 120);
-      const sender = r.sender || r.from || '';
-      const body = [
-        sender ? `**From:** ${sender}` : '',
-        r.date ? `**Date:** ${r.date}` : '',
-        r.summary ? `\n${r.summary}` : '',
-        (r.snippet || r.body_text) ? `\n\n${r.snippet || r.body_text}` : '',
-        r.url ? `\n\n[Original source](${r.url})` : '',
-        `\n\n*Captured from ${it.source} via Haven.*`,
-      ].filter(Boolean).join('');
-      const tags = ['ayar-labs', it.source, r.tag].filter(Boolean);
-      const res = await api('/api/knowledge/ingest', { method: 'POST',
-        body: JSON.stringify({ title, type: 'source', tags, body, source: `${it.source}:${it.id}` }) });
+      const res = await api('/api/knowledge/ingest', { method: 'POST', body: JSON.stringify(ingestPayload(it)) });
       await fetchApprovals();
       toast(`Queued for SecondBrain (draft #${res.draft_id}) — review in Approvals`); render();
     }
@@ -994,6 +1053,7 @@ document.addEventListener('keydown', e => {
       else toast('Draft reply covers Slack + Gmail for now — other sources soon');
     }
     else if (e.key === 'w' && sel) itemAction(sel, 'secondbrain');
+    else if (e.key === 'x' && sel) { toggleSelect(sel.key); e.preventDefault(); }
     else if (e.key === 'n') toggleFilter('noise');
     else if (e.key === 'h') toggleFilter('handled');
   } else if (state.view === 'approvals') {

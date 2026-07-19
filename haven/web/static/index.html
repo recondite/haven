@@ -139,6 +139,7 @@
   .tag-noise{background:var(--panel-2);color:var(--faint)} .tag-other{background:var(--panel-2);color:var(--muted)}
   .wflag{color:var(--purple);font-size:10px;flex:none}
   .lnflag{font-family:var(--mono);font-size:9px;color:var(--accent-2);background:var(--accent-dim);border-radius:4px;padding:1px 4px;flex:none}
+  .thrbadge{font-family:var(--mono);font-size:9px;color:var(--text-2);background:var(--panel-2,#1b2130);border:1px solid var(--border);border-radius:4px;padding:1px 5px;flex:none}
   .row-time{font-size:10.5px;color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap;flex:none;min-width:30px;text-align:right}
   .empty{padding:60px 20px;text-align:center;color:var(--muted)}
   .empty .big{font-size:28px;margin-bottom:8px}
@@ -544,10 +545,11 @@ function renderChrome() {
   $('#dryrun-banner').hidden = !(state.view === 'approvals' && state.approvals.dry_run);
   $('#content').classList.toggle('single', state.view === 'system');
 
-  // badges + counts
+  // badges + counts — counted by thread, matching the collapsed inbox rows
   const vis = visibleItems();
-  $('#badge-inbox').textContent = vis.length;
-  $('#badge-inbox').classList.toggle('hot', vis.length > 0);
+  const threadCount = threadGroups(vis).length;
+  $('#badge-inbox').textContent = threadCount;
+  $('#badge-inbox').classList.toggle('hot', threadCount > 0);
   const pend = state.approvals.drafts.length;
   $('#badge-appr').textContent = pend;
   $('#badge-appr').classList.toggle('amber', pend > 0);
@@ -584,7 +586,7 @@ function renderChrome() {
 
   // footer counts
   const total = allItems().length;
-  $('#foot-counts').textContent = `${total} cached · ${vis.length} shown · ${pend} drafts pending`;
+  $('#foot-counts').textContent = `${total} cached · ${threadCount} threads · ${pend} drafts pending`;
 
   renderKeymap();
 }
@@ -622,7 +624,36 @@ const GROUPS = [
   { key: 'med', label: 'Medium', dot: 'var(--info)' },
   { key: 'low', label: 'Low / FYI', dot: 'var(--faint)' },
 ];
-function rowHTML(it) {
+const URG_RANK = { urgent: 3, high: 2, med: 1, low: 0 };
+const TAG_RANK = { approval: 4, action: 3, travel: 2, fyi: 1, noise: 0 };
+// Collapse messages of the same Gmail thread into one entry. Representative =
+// the highest-priority message (urgency, then tag, then newest), so a thread
+// surfaces by its most important message, not whichever arrived first. Non-Gmail
+// items (and Gmail items without a thread_id) are singletons.
+function threadGroups(items) {
+  const map = new Map();
+  for (const it of items) {
+    const tid = (it.source === 'gmail' && it.raw.thread_id) ? 'g:' + it.raw.thread_id : it.key;
+    (map.get(tid) || map.set(tid, []).get(tid)).push(it);
+  }
+  const groups = [];
+  for (const members of map.values()) {
+    const rep = members.slice().sort((a, b) =>
+      (URG_RANK[b.urg] - URG_RANK[a.urg]) ||
+      ((TAG_RANK[b.tag] ?? 0) - (TAG_RANK[a.tag] ?? 0)) ||
+      (b.ts - a.ts))[0];
+    groups.push({ rep, count: members.length });
+  }
+  return groups;
+}
+// Actual number of cached messages in an item's Gmail thread (the payload's
+// thread_message_count is enrichment-time and can be stale). Drives thread-aware
+// Done + the "whole thread" affordance.
+function threadSize(it) {
+  if (it.source !== 'gmail' || !it.raw.thread_id) return 1;
+  return allItems().filter(x => x.source === 'gmail' && x.raw.thread_id === it.raw.thread_id).length;
+}
+function rowHTML(it, count = 1) {
   const r = it.raw;
   const checked = state.selected.has(it.key);
   return `<div class="row u-${it.urg} ${state.selKey === it.key ? 'sel' : ''} ${checked ? 'checked' : ''} ${r.handled_at ? 'handled' : ''}" data-key="${esc(it.key)}">
@@ -630,6 +661,7 @@ function rowHTML(it) {
     <span class="ubar"></span>${glyph(it.source)}
     <span class="row-sender">${esc(it.sender)}</span>
     <span class="row-subj">${esc(it.subject)}${it.snippet && it.snippet !== it.subject ? ` <span class="snip">— ${esc(it.snippet)}</span>` : ''}</span>
+    ${count > 1 ? `<span class="thrbadge" title="${count} messages in this thread — acting resolves the whole thread">⤷ ${count}</span>` : ''}
     ${r.watchlist_match ? `<span class="wflag" title="Watchlist: ${esc(r.watchlist_match)}">⚑</span>` : ''}
     ${r.linear_identifier ? `<span class="lnflag" title="Captured to Linear">${esc(r.linear_identifier)}</span>` : ''}
     <span class="tag ${tagClass(it.tag)}">${esc(it.tag || '—')}</span>
@@ -637,13 +669,13 @@ function rowHTML(it) {
   </div>`;
 }
 function renderInbox() {
-  const vis = visibleItems();
+  const groups = threadGroups(visibleItems());
   let h = '';
   for (const g of GROUPS) {
-    const items = vis.filter(i => i.urg === g.key).sort((a, b) => b.ts - a.ts);
-    if (!items.length) continue;
-    h += `<div class="group-hd"><span class="gdot" style="background:${g.dot}"></span>${g.label} <span class="gcount">${items.length}</span></div>`;
-    h += items.map(rowHTML).join('');
+    const rows = groups.filter(gr => gr.rep.urg === g.key).sort((a, b) => b.rep.ts - a.rep.ts);
+    if (!rows.length) continue;
+    h += `<div class="group-hd"><span class="gdot" style="background:${g.dot}"></span>${g.label} <span class="gcount">${rows.length}</span></div>`;
+    h += rows.map(gr => rowHTML(gr.rep, gr.count)).join('');
   }
   if (!h) {
     const anyLoaded = SOURCES.some(s => state.loaded[s]);
@@ -688,7 +720,13 @@ async function bulkAction(act) {
     const base = `/api/items/${it.source}/${pathId(it.id)}`;
     try {
       if (act === 'done') {
-        const res = await api(base + '/mark-done', { method: 'POST' }); it.raw.handled_at = res.handled_at;
+        // Thread-aware: a multi-message Gmail thread resolves as a unit.
+        if (it.source === 'gmail' && it.raw.thread_id && threadSize(it) > 1) {
+          const res = await api(`/api/items/gmail/thread/${pathId(it.raw.thread_id)}/mark-done`, { method: 'POST' });
+          for (const g of state.items.gmail) if (g.raw.thread_id === it.raw.thread_id) g.raw.handled_at = res.handled_at;
+        } else {
+          const res = await api(base + '/mark-done', { method: 'POST' }); it.raw.handled_at = res.handled_at;
+        }
       } else if (act === 'snooze1h') {
         const res = await api(base + '/snooze', { method: 'POST', body: JSON.stringify({ preset: '1h' }) }); it.raw.snooze_until = res.snooze_until;
       } else if (act === 'secondbrain') {
@@ -758,10 +796,14 @@ function renderItemDetail() {
     ${r.suggested_action ? `<div class="sum-box"><div class="lb">Suggested action</div>${esc(r.suggested_action)}</div>` : ''}
     ${body ? `<div class="dp-body">${esc(body)}</div>` : ''}
     <div class="dp-actions">
-      ${r.handled_at
-        ? `<button class="btn btn-ghost" data-act="undone">↩ Unmark done</button>`
-        : `<button class="btn btn-ok" data-act="done">✓ Done</button>`}
-      ${canThread && !r.handled_at ? `<button class="btn btn-ghost" data-act="done-thread" title="Mark the whole Gmail thread done">✓ Done (thread)</button>` : ''}
+      ${(() => {
+        if (r.handled_at) return `<button class="btn btn-ghost" data-act="undone">↩ Unmark done</button>`;
+        const tsize = threadSize(it);
+        return canThread && tsize > 1
+          ? `<button class="btn btn-ok" data-act="done-thread" title="Resolve all ${tsize} messages in this thread">✓ Done · whole thread (${tsize})</button>
+             <button class="btn btn-ghost" data-act="done" title="Mark only this message done">just this msg</button>`
+          : `<button class="btn btn-ok" data-act="done">✓ Done</button>`;
+      })()}
       <button class="btn btn-ghost" data-act="snooze1h">Snooze 1h</button>
       <button class="btn btn-ghost" data-act="snoozetmrw">Tomorrow</button>
       ${r.linear_id

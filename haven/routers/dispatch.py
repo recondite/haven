@@ -37,13 +37,13 @@ async def list_approvals() -> dict:
                 d["evidence"] = json.loads(d["evidence"])
             except Exception:
                 pass
-    return {"drafts": drafts, "dry_run": executor.DRY_RUN}
+    return {"drafts": drafts, "dry_run": executor.is_dry_run()}
 
 
 @router.post("/approvals/{draft_id}/approve")
 async def approve(draft_id: int) -> dict:
     try:
-        return executor.approve(draft_id)
+        return await executor.approve(draft_id)
     except executor.ExecutorError as e:
         raise HTTPException(400, str(e))
 

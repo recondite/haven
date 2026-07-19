@@ -1,29 +1,39 @@
 """Executor — the ONLY module that turns an approved draft into an action.
 
-Phase 1 safe-foundation state: **dry-run only**. `approve()` records the action
-as `dry_run` and sends nothing external. The real outbound send (Slack post,
-Gmail reply) is deliberately unbuilt (`_send_live` raises) and gated behind
-GT sign-off per ground rules #1/#4 — no auto-send code path exists yet.
+Live send built with GT's explicit sign-off (2026-07-19, Slack + Gmail). Armed
+by HAVEN_SEND_MODE=live in .env (default: dry — approve records the action,
+nothing transmits).
 
-Guarantees already in force:
-- One approval = exactly one action (spine.record_action UNIQUE(draft_id)).
-- No action without a real, non-rejected draft (checked here + FK in schema).
-- No deletes, ever, on any external service (NO_DELETE denylist, enforced at
-  the real-send boundary once it exists).
+At-most-once send protocol:
+  1. INSERT action row with status='sending' — the UNIQUE(draft_id) constraint
+     claims the slot, so a double-click / concurrent approve / restart can never
+     produce a second send.
+  2. Perform the send.
+  3. UPDATE the row to 'sent' (with the provider's message id).
+If the process dies between 2 and 3 the row stays 'sending' and Haven does NOT
+retry — the approvals API surfaces it as needs-verify. Never twice > maybe once.
+
+A transport failure marks the action 'failed' and does NOT auto-retry.
+ponytail: no resend/reset flow yet — if a transient Slack blip marks a send
+failed, re-run the draft agent; add an explicit reset endpoint if it recurs.
+
+No-delete enforcement: the transport table below contains exactly two verbs —
+post a Slack message, send a Gmail reply. No delete/admin API is imported or
+called anywhere in this module (tested).
 """
 from __future__ import annotations
 
+import asyncio
+import base64
 import difflib
 import logging
+from email.message import EmailMessage
 
+from haven import config
 from haven.spine import spine
 
 log = logging.getLogger("haven")
 
-DRY_RUN = True  # flip only with GT sign-off + a live executor implementation
-
-# Outbound verbs the executor may ever perform. Anything destructive is absent
-# by construction — there is no delete path to disable.
 ALLOWED_KINDS = {"slack", "email", "task", "wiki"}
 
 
@@ -31,17 +41,77 @@ class ExecutorError(Exception):
     pass
 
 
-def _send_live(kind: str, target: str, payload: str) -> dict:
-    """Real outbound send. Intentionally not implemented — building this is the
-    ground-rule-gated step that requires explicit GT approval first."""
-    raise NotImplementedError(
-        "Live send is not built. Haven can draft and approve (dry-run) only until "
-        "the executor's send path is reviewed and signed off."
-    )
+def is_dry_run() -> bool:
+    return config.SEND_MODE != "live"
 
 
-def approve(draft_id: int, actor: str = "gt") -> dict:
-    """Approve a pending draft -> record its single action. Idempotent."""
+# ─── Transports (the ONLY outbound verbs Haven has) ─────
+async def _slack_post(target: str, payload: str) -> dict:
+    """Post a reply into the originating Slack thread. target = 'channel:ts'."""
+    from haven.sources.slack import SlackClient
+    channel, _, ts = target.partition(":")
+    if not channel or not ts:
+        raise ExecutorError(f"bad slack target {target!r} (want channel:ts)")
+    client = SlackClient()
+    try:
+        resp = await client._call(
+            "chat.postMessage",
+            {"channel": channel, "text": payload, "thread_ts": ts},
+            use_bot=True,
+        )
+    finally:
+        await client.aclose()
+    return {"provider": "slack", "channel": channel, "ts": resp.get("ts"),
+            "thread_ts": ts}
+
+
+async def _gmail_send_reply(target: str, payload: str) -> dict:
+    """Send a reply in the Gmail thread of message `target` (a Gmail msg_id).
+    Addressing comes from Gmail's own headers for that message — never from
+    draft content."""
+    from haven.deps import gmail_auth
+    service = await gmail_auth.get_service()
+
+    def _get_meta() -> dict:
+        return service.users().messages().get(
+            userId="me", id=target, format="metadata",
+            metadataHeaders=["Message-ID", "Subject", "From", "Reply-To"],
+        ).execute()
+
+    meta = await asyncio.to_thread(_get_meta)
+    headers = {h["name"].lower(): h["value"]
+               for h in meta.get("payload", {}).get("headers", [])}
+    to = headers.get("reply-to") or headers.get("from")
+    if not to:
+        raise ExecutorError(f"gmail {target}: no From/Reply-To header to address")
+    subject = headers.get("subject", "")
+    if subject.lower()[:3] != "re:":
+        subject = f"Re: {subject}"
+
+    mime = EmailMessage()
+    mime["To"] = to
+    mime["Subject"] = subject
+    orig_msgid = headers.get("message-id")
+    if orig_msgid:
+        mime["In-Reply-To"] = orig_msgid
+        mime["References"] = orig_msgid
+    mime.set_content(payload)
+    raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
+
+    def _send() -> dict:
+        return service.users().messages().send(
+            userId="me", body={"raw": raw, "threadId": meta.get("threadId")}
+        ).execute()
+
+    sent = await asyncio.to_thread(_send)
+    return {"provider": "gmail", "id": sent.get("id"), "threadId": sent.get("threadId"), "to": to}
+
+
+_TRANSPORTS = {"slack": _slack_post, "email": _gmail_send_reply}
+
+
+async def approve(draft_id: int, actor: str = "gt") -> dict:
+    """Approve a pending draft -> exactly one action, at most one send."""
     draft = spine.get_draft(draft_id)
     if draft is None:
         raise ExecutorError(f"draft {draft_id} not found")
@@ -50,30 +120,53 @@ def approve(draft_id: int, actor: str = "gt") -> dict:
     if draft["kind"] not in ALLOWED_KINDS:
         raise ExecutorError(f"draft {draft_id} has disallowed kind {draft['kind']!r}")
 
-    if DRY_RUN:
-        result = {"dry_run": True, "note": "no external send performed"}
-        status = "dry_run"
-    else:  # pragma: no cover - not reachable until sign-off
-        result = _send_live(draft["kind"], draft["target"], draft["payload"])
-        status = "sent"
+    dry = is_dry_run()
+    initial_status = "dry_run" if dry else "sending"
+    initial_result = ({"dry_run": True, "note": "no external send performed"}
+                      if dry else None)
 
+    # Step 1: claim the draft's single action slot (idempotency barrier).
     action_id, created = spine.record_action(
-        draft_id, draft["kind"], draft["target"], status, result
+        draft_id, draft["kind"], draft["target"], initial_status, initial_result
     )
-    if created:
-        spine.set_draft_status(draft_id, "approved")
-        # Honest feedback verdict: edited if GT changed the agent's text before
-        # approving, with a character-level edit distance for the quality signal.
-        orig = draft.get("original_payload")
-        if orig is not None and orig != draft["payload"]:
-            spine.record_feedback(draft_id, "edited", _edit_distance(orig, draft["payload"]))
+    if not created:
+        # Someone already approved this draft. Report the existing state; a row
+        # stuck in 'sending' means a crash mid-send — needs manual verify.
+        existing = spine.get_action_for_draft(draft_id)
+        return {"draft_id": draft_id, "action_id": action_id, "created": False,
+                "status": existing["status"], "dry_run": dry,
+                "needs_verify": existing["status"] == "sending"}
+
+    # First (and only) approval: bookkeeping.
+    spine.set_draft_status(draft_id, "approved")
+    orig = draft.get("original_payload")
+    if orig is not None and orig != draft["payload"]:
+        spine.record_feedback(draft_id, "edited", _edit_distance(orig, draft["payload"]))
+    else:
+        spine.record_feedback(draft_id, "approved_clean")
+    spine.audit(actor, "draft_approved", "draft", draft_id, {"action_id": action_id})
+
+    status = initial_status
+    result = initial_result
+    if not dry:
+        # Step 2 + 3: send, then advance the row. Kinds without a live transport
+        # (task/wiki) stay draft-recorded only.
+        transport = _TRANSPORTS.get(draft["kind"])
+        if transport is None:
+            status, result = "failed", {"error": f"no live transport for kind {draft['kind']!r}"}
         else:
-            spine.record_feedback(draft_id, "approved_clean")
-        spine.audit(actor, "draft_approved", "draft", draft_id, {"action_id": action_id})
-        spine.audit("system", "action_executed", "action", action_id,
-                    {"status": status, "dry_run": DRY_RUN})
-    return {"draft_id": draft_id, "action_id": action_id, "created": created,
-            "status": status, "dry_run": DRY_RUN}
+            try:
+                result = await transport(draft["target"], draft["payload"])
+                status = "sent"
+            except Exception as e:  # noqa: BLE001 — recorded, surfaced, never retried
+                log.error("live send failed for draft %s: %s", draft_id, e)
+                status, result = "failed", {"error": str(e)[:500]}
+        spine.update_action(action_id, status, result)
+
+    spine.audit("system", "action_executed", "action", action_id,
+                {"status": status, "dry_run": dry})
+    return {"draft_id": draft_id, "action_id": action_id, "created": True,
+            "status": status, "dry_run": dry, "result": result}
 
 
 def _edit_distance(a: str, b: str) -> int:

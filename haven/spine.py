@@ -324,6 +324,16 @@ class Spine:
             )
             self._conn.commit()
 
+    def update_action(self, action_id: int, status: str, result: dict | None = None) -> None:
+        """Transition an action's send state (sending -> sent | failed | unverified).
+        Append-only spirit: rows are never deleted; only their status advances."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE action SET status = ?, result = ? WHERE id = ?",
+                (status, json.dumps(result) if result else None, action_id),
+            )
+            self._conn.commit()
+
     def get_action_for_draft(self, draft_id: int) -> dict | None:
         with self._lock:
             row = self._conn.execute("SELECT * FROM action WHERE draft_id=?", (draft_id,)).fetchone()

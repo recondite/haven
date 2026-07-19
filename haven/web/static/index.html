@@ -658,6 +658,7 @@ function renderItemDetail() {
   const why = whyNow(it);
   const from = r.sender_email || r.channel_name || r.meeting_title || '';
   const isSlack = it.source === 'slack';
+  const canDraftReply = it.source === 'slack' || it.source === 'gmail';
   const canThread = it.source === 'gmail' && r.thread_id;
   const body = r.body_text || r.snippet || '';
   const dl = r.deeplink ? `<a href="${esc(r.deeplink)}" target="_blank" rel="noopener">Open in ${esc(s.label)} ↗</a>` : '';
@@ -695,7 +696,7 @@ function renderItemDetail() {
         ? `<a class="btn btn-ghost" href="${esc(r.linear_url || '#')}" target="_blank" rel="noopener">▤ Open in Linear</a>
            ${r.linear_closed_at ? '' : `<button class="btn btn-ghost" data-act="linear-close">Close issue</button>`}`
         : `<button class="btn btn-ghost" data-act="linear">▤ Capture to Linear</button>`}
-      <button class="btn btn-primary" data-act="draft" ${isSlack ? '' : 'disabled title="Draft agents for this source ship soon — Slack only for now"'}>✎ Draft reply${isSlack ? '' : ' (soon)'}</button>
+      <button class="btn btn-primary" data-act="draft" ${canDraftReply ? '' : 'disabled title="Draft agents for this source ship soon — Slack + Gmail for now"'}>✎ Draft reply${canDraftReply ? '' : ' (soon)'}</button>
     </div>
   </div>`;
   dp.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => itemAction(it, b.dataset.act)));
@@ -918,8 +919,8 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'S' && sel) itemAction(sel, 'snoozetmrw');
     else if (e.key === 'c' && sel) itemAction(sel, sel.raw.linear_id ? 'linear-close' : 'linear');
     else if (e.key === 'd' && sel) {
-      if (sel.source === 'slack') itemAction(sel, 'draft');
-      else toast('Draft reply is Slack-only for now — other sources soon');
+      if (sel.source === 'slack' || sel.source === 'gmail') itemAction(sel, 'draft');
+      else toast('Draft reply covers Slack + Gmail for now — other sources soon');
     }
     else if (e.key === 'n') toggleFilter('noise');
     else if (e.key === 'h') toggleFilter('handled');

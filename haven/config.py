@@ -20,6 +20,11 @@ HAVEN_PORT = int(os.getenv("HAVEN_PORT", "8765"))
 # works with EventSource); API clients use `Authorization: Bearer <token>`.
 HAVEN_AUTH_TOKEN = os.getenv("HAVEN_AUTH_TOKEN")
 
+# Send mode — "dry" (default): approving a draft records the action but sends
+# nothing. "live": the executor actually posts/sends. Arming is a deliberate
+# .env act (GT sign-off 2026-07-19); the UI badge and System view reflect it.
+SEND_MODE = os.getenv("HAVEN_SEND_MODE", "dry")
+
 # Quiet hours — no automatic polls fire in this local-time window (manual
 # "Poll now" still works). Also used as the wake hour for the "tomorrow" snooze.
 QUIET_HOURS_START = int(os.getenv("HAVEN_QUIET_HOURS_START", "0"))   # midnight

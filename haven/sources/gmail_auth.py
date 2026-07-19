@@ -1,5 +1,6 @@
 """Gmail OAuth flow — generates auth URL, handles callback, persists token."""
 import asyncio
+import json
 import os
 import tempfile
 
@@ -17,7 +18,14 @@ from google_auth_oauthlib.flow import Flow
 # gmail.modify is read + label/state changes. It does NOT grant permanent delete
 # (those require gmail.modify+gmail.delete or full https://mail.google.com/). Per
 # Haven's ground rules, archive (INBOX label removal) is allowed; delete is not.
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+# gmail.send (added with GT's explicit sign-off, 2026-07-19) lets the executor
+# send GT-approved reply drafts. Send-only: it grants no read or delete beyond
+# what gmail.modify already covers. Existing tokens lack it — /oauth/authorize
+# must be re-run once; /api/auth/gmail/status surfaces scopes_ok until then.
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+]
 
 
 class GmailAuth:
@@ -168,9 +176,16 @@ class GmailAuth:
         return Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
 
     def has_required_scopes(self) -> bool:
-        """True if the persisted token covers all SCOPES we now need."""
-        creds = self.credentials()
-        if creds is None:
+        """True if the persisted token covers all SCOPES we now need.
+
+        Reads the token file's own "scopes" field — Credentials.from_authorized
+        _user_file(path, SCOPES) sets .scopes to the REQUESTED list, so checking
+        creds.scopes against SCOPES was a tautology (always True).
+        """
+        if not self.is_authed():
             return False
-        granted = set(creds.scopes or [])
+        try:
+            granted = set(json.loads(self.token_path.read_text(encoding="utf-8")).get("scopes") or [])
+        except Exception:
+            return False
         return all(s in granted for s in SCOPES)

@@ -35,8 +35,33 @@ async def draft_reply_slack(item: dict) -> dict:
     }
 
 
-AGENTS = {"draft_reply_slack": draft_reply_slack}
-DEFAULT_AGENT_BY_SOURCE = {"slack": "draft_reply_slack"}
+async def draft_reply_email(item: dict) -> dict:
+    """Draft an email reply to a cached Gmail message. Returns the draft spec.
+    target = the Gmail msg_id; the executor derives To/Subject/threading from
+    Gmail's own headers at send time, never from draft content."""
+    sender = item.get("sender") or item.get("from") or "the sender"
+    subject = item.get("subject") or ""
+    body = item.get("snippet") or item.get("summary") or ""
+    prompt = (
+        "You are drafting an email reply that Garth Thompson (CIO, Ayar Labs) will "
+        "review before sending. Style: lead with the answer; bullets over prose; "
+        "1-2 lines when possible; professional; sign off exactly 'Thanks, GT'. "
+        "Do not invent facts you were not given.\n\n"
+        f"Email from {sender}\nSubject: {subject}\n\n{body}\n\n"
+        "Output ONLY the reply body text, no subject line, no preamble."
+    )
+    reply = (await runtime.call(prompt, timeout=90)).strip()
+    return {
+        "kind": "email",
+        "target": item.get("msg_id", ""),
+        "payload": reply,
+        "evidence": [{"source": "gmail", "msg_id": item.get("msg_id"),
+                      "excerpt": f"{subject} — {body[:400]}"}],
+    }
+
+
+AGENTS = {"draft_reply_slack": draft_reply_slack, "draft_reply_email": draft_reply_email}
+DEFAULT_AGENT_BY_SOURCE = {"slack": "draft_reply_slack", "gmail": "draft_reply_email"}
 
 
 async def run_agent(source: str, msg_id: str, agent_name: str | None = None) -> dict:

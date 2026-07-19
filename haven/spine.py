@@ -8,6 +8,7 @@ migration framework. Add tables (person, request, job, draft, action, audit,
 feedback) in the phase that first writes them — one CREATE TABLE each. Promote to
 a package when it grows a second concern.
 """
+import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -35,6 +36,70 @@ _MIGRATIONS: list[str] = [
         first_seen   TEXT NOT NULL DEFAULT (datetime('now')),
         last_seen    TEXT NOT NULL DEFAULT (datetime('now')),
         PRIMARY KEY (source, external_id)
+    );
+    """,
+    # v2 — Phase 1 dispatch pipeline: job -> draft -> (approve) -> action, with
+    # job_step tracing, append-only audit, and feedback captured at the gate.
+    # Invariants: action.draft_id is UNIQUE (one approval = exactly one action);
+    # action.draft_id FK -> draft (no action without a real draft). Only the
+    # executor inserts action rows.
+    """
+    CREATE TABLE job (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent       TEXT NOT NULL,
+        runtime     TEXT,
+        subject_ref TEXT,               -- e.g. "slack/C123:1699..."
+        status      TEXT NOT NULL,      -- running | done | failed | dead_letter
+        tokens      INTEGER,
+        cost_usd    REAL,
+        exit_reason TEXT,
+        retries     INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE job_step (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id     INTEGER NOT NULL REFERENCES job(id),
+        seq        INTEGER NOT NULL,
+        tool       TEXT NOT NULL,
+        detail     TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE draft (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id     INTEGER REFERENCES job(id),
+        kind       TEXT NOT NULL,       -- email | slack | task | wiki
+        target     TEXT,                -- where it would go
+        payload    TEXT NOT NULL,       -- the draft content
+        evidence   TEXT,                -- json: cited sources
+        status     TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | rejected | edited
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE action (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        draft_id   INTEGER NOT NULL UNIQUE REFERENCES draft(id),
+        kind       TEXT NOT NULL,
+        target     TEXT,
+        status     TEXT NOT NULL,       -- dry_run | sent | failed
+        result     TEXT,                -- json
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE audit (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor      TEXT NOT NULL,       -- system | gt | agent
+        action     TEXT NOT NULL,
+        entity     TEXT,
+        entity_id  INTEGER,
+        detail     TEXT,
+        ts         TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE feedback (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        draft_id      INTEGER NOT NULL REFERENCES draft(id),
+        verdict       TEXT NOT NULL,    -- approved_clean | edited | rejected
+        edit_distance INTEGER NOT NULL DEFAULT 0,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
     """,
 ]
@@ -78,6 +143,7 @@ class Spine:
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")  # enforce draft/action integrity
         self._conn.row_factory = sqlite3.Row
         self._migrate()
 
@@ -144,6 +210,107 @@ class Spine:
             if bad:
                 out.append({"external_id": ext_id, "reason": "field_mismatch", "fields": bad})
         return out
+
+    # ─── Phase 1 dispatch lifecycle ──────────────────────
+    def audit(self, actor: str, action: str, entity: str | None = None,
+              entity_id: int | None = None, detail: dict | None = None) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO audit (actor, action, entity, entity_id, detail) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (actor, action, entity, entity_id, json.dumps(detail) if detail else None),
+            )
+            self._conn.commit()
+
+    def create_job(self, agent: str, runtime: str, subject_ref: str) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO job (agent, runtime, subject_ref, status) VALUES (?, ?, ?, 'running')",
+                (agent, runtime, subject_ref),
+            )
+            self._conn.commit()
+            job_id = int(cur.lastrowid)
+        self.audit("agent", "job_started", "job", job_id, {"agent": agent, "subject": subject_ref})
+        return job_id
+
+    def log_step(self, job_id: int, seq: int, tool: str, detail: dict | None = None) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO job_step (job_id, seq, tool, detail) VALUES (?, ?, ?, ?)",
+                (job_id, seq, tool, json.dumps(detail) if detail else None),
+            )
+            self._conn.commit()
+
+    def finish_job(self, job_id: int, status: str, exit_reason: str | None = None) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE job SET status=?, exit_reason=?, updated_at=datetime('now') WHERE id=?",
+                (status, exit_reason, job_id),
+            )
+            self._conn.commit()
+
+    def create_draft(self, job_id: int | None, kind: str, target: str,
+                     payload: str, evidence: list | dict | None = None) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO draft (job_id, kind, target, payload, evidence) VALUES (?, ?, ?, ?, ?)",
+                (job_id, kind, target, payload, json.dumps(evidence) if evidence else None),
+            )
+            self._conn.commit()
+            draft_id = int(cur.lastrowid)
+        self.audit("agent", "draft_created", "draft", draft_id, {"kind": kind, "target": target})
+        return draft_id
+
+    def get_draft(self, draft_id: int) -> dict | None:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM draft WHERE id=?", (draft_id,)).fetchone()
+            return dict(row) if row else None
+
+    def list_drafts(self, status: str = "pending") -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM draft WHERE status=? ORDER BY created_at DESC", (status,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def set_draft_status(self, draft_id: int, status: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE draft SET status=?, updated_at=datetime('now') WHERE id=?",
+                (status, draft_id),
+            )
+            self._conn.commit()
+
+    def record_action(self, draft_id: int, kind: str, target: str, status: str,
+                      result: dict | None = None) -> tuple[int, bool]:
+        """Insert the single action for a draft. Idempotent: the UNIQUE(draft_id)
+        constraint means a double-approve or a restart mid-approve yields exactly
+        one row. Returns (action_id, created) — created=False if it already existed.
+        ONLY the executor should call this."""
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT OR IGNORE INTO action (draft_id, kind, target, status, result) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (draft_id, kind, target, status, json.dumps(result) if result else None),
+            )
+            self._conn.commit()
+            if cur.rowcount == 1:
+                return int(cur.lastrowid), True
+            row = self._conn.execute("SELECT id FROM action WHERE draft_id=?", (draft_id,)).fetchone()
+            return int(row["id"]), False
+
+    def record_feedback(self, draft_id: int, verdict: str, edit_distance: int = 0) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO feedback (draft_id, verdict, edit_distance) VALUES (?, ?, ?)",
+                (draft_id, verdict, edit_distance),
+            )
+            self._conn.commit()
+
+    def get_action_for_draft(self, draft_id: int) -> dict | None:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM action WHERE draft_id=?", (draft_id,)).fetchone()
+            return dict(row) if row else None
 
 
 spine = Spine(config.DATA_DIR / "state" / "spine.sqlite")

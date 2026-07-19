@@ -25,7 +25,17 @@ from sse_starlette.sse import EventSourceResponse
 from haven import config
 from haven.deps import gmail_auth
 from haven.events import bus
-from haven.routers import contacts, freshservice, gmail, items, otter, slack, spine, wiki
+from haven.routers import (
+    contacts,
+    dispatch,
+    freshservice,
+    gmail,
+    items,
+    otter,
+    slack,
+    spine,
+    wiki,
+)
 
 STATIC_DIR = Path(__file__).parent / "web" / "static"
 
@@ -258,6 +268,7 @@ app.include_router(wiki.router)
 app.include_router(contacts.router)
 app.include_router(items.router)
 app.include_router(spine.router)
+app.include_router(dispatch.router)
 
 
 # ─── Static UI (mounted last so /api/* and /oauth/* take precedence) ───

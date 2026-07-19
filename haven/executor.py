@@ -135,8 +135,10 @@ def validate_wiki(payload: str, target: str) -> None:
 
 
 async def _wiki_write(target: str, payload: str) -> dict:
-    """Write a new SecondBrain page + append to the append-only log. New pages
-    only — validate_wiki (run at approve time) guarantees it doesn't exist."""
+    """Write a new SecondBrain page + append to the append-only log AND the
+    index catalog (M3, GT-approved 2026-07-19). New pages only — validate_wiki
+    (run at approve time) guarantees it doesn't exist."""
+    import datetime as _dt
     rel = target.replace("\\", "/")
     dest = config.SECONDBRAIN_DIR / rel
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +147,18 @@ async def _wiki_write(target: str, payload: str) -> dict:
     if log_path.exists():
         with log_path.open("a", encoding="utf-8") as f:
             f.write(f"\n- Haven ingest: created [[{dest.stem}]] ({rel})\n")
-    return {"provider": "secondbrain", "path": rel}
+    # Index catalog: append-only, under a dedicated section so Haven never edits
+    # existing catalog sections — the wiki agent re-files these during curation.
+    idx_path = config.SECONDBRAIN_DIR / "wiki" / "index.md"
+    if idx_path.exists():
+        idx_text = idx_path.read_text(encoding="utf-8", errors="replace")
+        with idx_path.open("a", encoding="utf-8") as f:
+            if "## Haven ingests (uncatalogued)" not in idx_text:
+                f.write("\n## Haven ingests (uncatalogued)\n\n"
+                        "_Appended by Haven on ingest-approve; re-file into the proper "
+                        "section during curation._\n")
+            f.write(f"- [[{dest.stem}]] — ingested by Haven {_dt.date.today().isoformat()} (1 source)\n")
+    return {"provider": "secondbrain", "path": rel, "catalogued": idx_path.exists()}
 
 
 async def _gmail_send_reply(target: str, payload: str) -> dict:

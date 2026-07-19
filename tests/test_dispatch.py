@@ -198,10 +198,12 @@ def test_wiki_schema_gate_blocks_bad_drafts(sp):
 def test_wiki_ingest_writes_on_approve(sp, live, tmp_path, monkeypatch):
     from haven import config
     from haven import executor as ex
-    # point SecondBrain at a temp dir with a wiki/ + log.md
+    # point SecondBrain at a temp dir with a wiki/ + log.md + index.md
     sb = tmp_path / "SecondBrain"
     (sb / "wiki").mkdir(parents=True)
     (sb / "wiki" / "log.md").write_text("# Log\n", encoding="utf-8")
+    (sb / "wiki" / "index.md").write_text(
+        "# Index\n\n## People\n- [[someone]] — x (1 source)\n", encoding="utf-8")
     monkeypatch.setattr(config, "SECONDBRAIN_DIR", sb)
     # live fixture patched _TRANSPORTS to fakes; restore the real wiki writer
     monkeypatch.setitem(ex._TRANSPORTS, "wiki", ex._wiki_write)
@@ -213,6 +215,11 @@ def test_wiki_ingest_writes_on_approve(sp, live, tmp_path, monkeypatch):
     written = (sb / "wiki" / "concepts" / "cpo.md").read_text(encoding="utf-8")
     assert "# Co-packaged optics" in written
     assert "Haven ingest" in (sb / "wiki" / "log.md").read_text(encoding="utf-8")
+    # M3: catalogued under the dedicated append-only section; existing sections untouched
+    idx = (sb / "wiki" / "index.md").read_text(encoding="utf-8")
+    assert "## Haven ingests (uncatalogued)" in idx
+    assert "- [[cpo]] — ingested by Haven" in idx
+    assert idx.startswith("# Index\n\n## People\n- [[someone]]")
     # second identical ingest must refuse (page now exists — never overwrite)
     did2 = sp.create_draft(job, "wiki", "wiki/concepts/cpo.md", _GOOD_WIKI)
     with pytest.raises(executor.ExecutorError):

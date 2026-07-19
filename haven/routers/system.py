@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from haven import backup, config, executor
+from haven import backup, config, executor, knowledge
 from haven.spine import spine
 
 log = logging.getLogger("haven")
@@ -25,6 +25,7 @@ async def state() -> dict:
         },
         "stuck_actions": spine.list_actions("sending"),
         "backups": backup.backup_status(),
+        "curation": knowledge.curation_backlog(),
     }
 
 

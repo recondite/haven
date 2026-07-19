@@ -1147,6 +1147,7 @@ function renderSystem() {
       <div class="sys-card ${sys && sys.stuck_actions && sys.stuck_actions.length ? 'down' : ''}"><div class="sys-hd"><span class="nm">Send ledger</span><span class="st ${sys && sys.stuck_actions && sys.stuck_actions.length ? 'st-warn' : 'st-ok'}">${sys && sys.stuck_actions ? (sys.stuck_actions.length ? sys.stuck_actions.length + ' NEEDS VERIFY' : 'CLEAN') : '—'}</span></div>
         <div class="sys-kv">
           <span class="k">Backups</span><span class="v">${sys && sys.backups ? `${sys.backups.count} · latest ${esc(sys.backups.latest || 'none')} · ${Math.round((sys.backups.total_bytes || 0) / 1024)} KB` : '—'}</span>
+          <span class="k">Uncurated ingests</span><span class="v ${sys && sys.curation && sys.curation.count > 10 ? 'err' : ''}">${sys && sys.curation ? sys.curation.count + ' page(s) awaiting wiki-agent curation' : '—'}</span>
         </div>
         ${sys && sys.stuck_actions && sys.stuck_actions.length ? sys.stuck_actions.map(a =>
           `<div style="margin-top:8px;font-size:11px;border:1px solid var(--warn);border-radius:6px;padding:6px 8px">

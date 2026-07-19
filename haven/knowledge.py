@@ -318,6 +318,48 @@ def build_page(title: str, type_: str, tags: list[str], body: str) -> str:
             f"sources: [haven-ingest-{today}]\n---\n\n# {title}\n\n{body.strip()}\n")
 
 
+# ─── Ingest hygiene (M3) ─────────────────────────────────
+def similar_pages(title: str, limit: int = 3) -> list[dict]:
+    """Existing pages whose slug/title heavily overlaps a proposed title —
+    the near-duplicate warning at draft time. Containment ≥ 0.7 flags."""
+    t = set(_tokens(title))
+    if not t or not _WIKI_DIR.is_dir():
+        return []
+    out = []
+    for md in _WIKI_DIR.rglob("*.md"):
+        if md.name in ("log.md", "index.md"):
+            continue
+        s = set(_tokens(md.stem))
+        text = md.read_text(encoding="utf-8", errors="replace")
+        m = _H1_RE.search(_strip_frontmatter(text))
+        if m:
+            s |= set(_tokens(m.group(1)))
+        if not s:
+            continue
+        containment = len(t & s) / min(len(t), len(s))
+        if containment >= 0.7:
+            out.append({"path": str(md.relative_to(config.SECONDBRAIN_DIR)).replace("\\", "/"),
+                        "overlap": round(containment, 2)})
+    out.sort(key=lambda x: x["overlap"], reverse=True)
+    return out[:limit]
+
+
+def curation_backlog() -> dict:
+    """Pages Haven ingested that a human hasn't re-curated yet (provenance is
+    the haven-ingest shortcut). Surfaced on /system so the shortcut can't
+    silently become the norm."""
+    if not _WIKI_DIR.is_dir():
+        return {"count": 0, "pages": []}
+    pages = []
+    for md in _WIKI_DIR.rglob("*.md"):
+        if md.name in ("log.md", "index.md"):
+            continue
+        head = md.read_text(encoding="utf-8", errors="replace")[:500]
+        if "haven-ingest" in head or "haven-ask-gap" in head:
+            pages.append(str(md.relative_to(config.SECONDBRAIN_DIR)).replace("\\", "/"))
+    return {"count": len(pages), "pages": pages[:50]}
+
+
 def get_page(rel_path: str) -> str | None:
     """Read a page by its SecondBrain-relative path. Guards against traversal."""
     target = (config.SECONDBRAIN_DIR / rel_path).resolve()

@@ -66,7 +66,15 @@ async def ingest(payload: dict) -> dict:
         executor.validate_wiki(page_md, target)  # same gate approve() enforces
     except executor.ExecutorError as e:
         raise HTTPException(400, f"schema/validation: {e}")
-    draft_id = spine.create_draft(None, "wiki", target, page_md,
-                                  evidence=[{"source": "ingest", "note": payload.get("source", "manual")}])
+    evidence = [{"source": "ingest", "note": payload.get("source", "manual")}]
+    # M3: near-duplicate warning rides the draft into the approval queue —
+    # GT decides, nothing blocked.
+    dups = knowledge.similar_pages(title)
+    if dups:
+        evidence.append({"source": "warning",
+                         "excerpt": "Possible duplicate of: "
+                                    + " · ".join(f"{d['path']} ({int(d['overlap']*100)}%)" for d in dups)})
+    draft_id = spine.create_draft(None, "wiki", target, page_md, evidence=evidence)
     return {"draft_id": draft_id, "target": target, "status": "pending",
+            "duplicate_warning": bool(dups),
             "note": "Review in Approvals; approving writes the page to SecondBrain (live mode)."}

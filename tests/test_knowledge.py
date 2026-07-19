@@ -52,6 +52,23 @@ def test_search_empty_query(wiki):
     assert knowledge.search("") == []
 
 
+def test_similar_pages_flags_near_dup(wiki):
+    hits = knowledge.similar_pages("Co-packaged optics overview")
+    assert hits and hits[0]["path"].endswith("co-packaged-optics.md")
+    assert knowledge.similar_pages("quarterly travel budget analysis") == []
+
+
+def test_curation_backlog_counts_haven_ingests(wiki, tmp_path):
+    root = wiki
+    p = root / "wiki" / "sources"
+    p.mkdir(parents=True)
+    (p / "ingested.md").write_text(
+        "---\ntype: source\nsources: [haven-ingest-2026-07-19]\n---\n\n# Ingested\n\nx\n",
+        encoding="utf-8")
+    bl = knowledge.curation_backlog()
+    assert bl["count"] == 1 and bl["pages"][0].endswith("ingested.md")
+
+
 def test_get_page_and_traversal_guard(wiki):
     assert "Co-packaged" in knowledge.get_page("wiki/concepts/co-packaged-optics.md")
     assert knowledge.get_page("../../../etc/passwd") is None

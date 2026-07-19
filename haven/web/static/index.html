@@ -89,12 +89,19 @@
   .count-pill b{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text)}
   .count-pill.ar b{color:var(--err)} .count-pill.appr b{color:var(--warn)} .count-pill.reply b{color:var(--info)} .count-pill.watch b{color:var(--purple)}
   .top-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .llm-pill{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:var(--mono);color:var(--muted);padding:3px 8px;border:1px solid var(--border);border-radius:6px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;cursor:default}
+  .llm-pill .d{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
+  .llm-pill.down .d{background:var(--err)}
+  .llm-pill b{color:var(--text);font-weight:600}
   .src-pills{display:flex;gap:4px}
-  .src-pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;color:var(--text-2);background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:3px 9px}
+  .src-pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;color:var(--text-2);background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:3px 9px;cursor:pointer;user-select:none}
+  .src-pill:not(.soon):hover{border-color:var(--accent)}
   .src-pill .d{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:none}
   .src-pill.down .d{background:var(--err)}
   .src-pill.down{color:var(--err);border-color:rgba(248,81,73,.4)}
-  .src-pill.soon{opacity:.45}
+  .src-pill.off{opacity:.4;text-decoration:line-through}
+  .src-pill.off .d{background:var(--faint)}
+  .src-pill.soon{opacity:.45;cursor:default}
   .src-pill.soon .d{background:var(--faint)}
 
   .content{display:grid;grid-template-columns:minmax(0,1fr) 400px;min-height:0;flex:1}
@@ -107,7 +114,7 @@
   .group-hd{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;padding:7px 18px 5px;font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);background:linear-gradient(var(--bg) 82%,rgba(13,17,23,0))}
   .group-hd .gcount{font-variant-numeric:tabular-nums;color:var(--faint);font-weight:600;letter-spacing:0}
   .group-hd .gdot{width:7px;height:7px;border-radius:2px;flex:none}
-  .row{display:flex;align-items:center;gap:8px;padding:5px 14px 5px 13px;min-height:33px;cursor:pointer;border-left:3px solid transparent;position:relative}
+  .row{display:flex;align-items:center;gap:8px;padding:16px 14px 16px 13px;min-height:56px;cursor:pointer;border-left:3px solid transparent;position:relative}
   .row:hover{background:var(--panel)}
   .row.sel{background:var(--accent-dim);border-left-color:var(--accent)}
   .row.handled{opacity:.5}
@@ -116,8 +123,8 @@
   .src-glyph{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:800;flex:none;letter-spacing:.02em}
   .sg-gmail{background:var(--err-dim);color:#ff8f88} .sg-slack{background:var(--purple-dim);color:var(--purple)}
   .sg-freshservice{background:var(--ok-dim);color:#6fd382} .sg-otter{background:var(--info-dim);color:#79b8ff}
-  .row-sender{font-weight:600;font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;max-width:148px}
-  .row-subj{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+  .row-sender{font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;max-width:160px}
+  .row-subj{font-size:13px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
   .row-subj .snip{color:var(--muted)}
   .tag{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-radius:4px;padding:1px 5px;flex:none}
   .tag-approval{background:var(--warn-dim);color:var(--warn)} .tag-action{background:var(--err-dim);color:#ff8f88}
@@ -270,6 +277,7 @@
         <span class="count-pill watch" title="Watchlist matches"><b id="cnt-watch">–</b> Watch</span>
       </div>
       <div class="top-right">
+        <span class="llm-pill" id="llm-pill" hidden><span class="d"></span><span id="llm-pill-txt"></span></span>
         <div class="src-pills" id="src-pills"></div>
       </div>
     </div>
@@ -327,6 +335,7 @@ const state = {
   watchlist: [],
   llm: null, health: null,
   hideNoise: true, hideHandled: true,
+  srcOff: new Set(),   // sources filtered OUT of the inbox (empty = show all)
   selKey: null,          // inbox selection: "source|msg_id"
   selDraft: null,        // approvals selection: draft id
   sse: { live: false, lastEvent: 0 },
@@ -391,9 +400,16 @@ function isSnoozed(it) { return Number(it.raw.snooze_until || 0) > nowS(); }
 function visibleItems() {
   return allItems().filter(it =>
     !isSnoozed(it)
+    && !state.srcOff.has(it.source)
     && !(state.hideNoise && it.tag === 'noise')
     && !(state.hideHandled && it.raw.handled_at)
   );
+}
+function toggleSource(s) {
+  if (state.srcOff.has(s)) state.srcOff.delete(s); else state.srcOff.add(s);
+  if (state.srcOff.size === SOURCES.length) state.srcOff.clear(); // all off = reset to all on
+  toast(state.srcOff.size ? `Sources: ${SOURCES.filter(x => !state.srcOff.has(x)).join(', ')}` : 'Sources: all');
+  render();
 }
 function orderedVisible() {
   const v = visibleItems();
@@ -535,12 +551,25 @@ function renderChrome() {
   env.textContent = state.approvals.dry_run ? 'DRY-RUN' : 'LIVE';
   env.classList.toggle('live', !state.approvals.dry_run);
 
-  // source pills
+  // active LLM pill (runtime + model, red dot if the active runtime is down)
+  const lp = $('#llm-pill');
+  if (state.llm) {
+    lp.hidden = false;
+    const avail = state.llm.available != null ? state.llm.available : state.llm.cli_available;
+    lp.classList.toggle('down', !avail);
+    $('#llm-pill-txt').innerHTML = `${esc(state.llm.runtime || '?')} · <b>${esc(state.llm.model || '?')}</b>`;
+    lp.title = `Active LLM runtime: ${state.llm.runtime}${state.llm.local_base_url ? ' @ ' + state.llm.local_base_url : ''} — ${avail ? 'reachable' : 'UNREACHABLE'}`;
+  } else { lp.hidden = true; }
+
+  // source pills — clickable filters: click toggles a source in/out of the inbox
   $('#src-pills').innerHTML = SOURCES.map(s2 => {
     const a = state.auth[s2];
     const ok = a && a.authed;
-    return `<span class="src-pill ${ok ? '' : 'down'}" title="${esc(SRC[s2].label)} — ${ok ? 'authorized' : 'not authorized'}"><span class="d"></span>${esc(SRC[s2].label)}</span>`;
+    const off = state.srcOff.has(s2);
+    return `<span class="src-pill ${ok ? '' : 'down'} ${off ? 'off' : ''}" data-srcpill="${s2}" title="${esc(SRC[s2].label)} — ${ok ? 'authorized' : 'not authorized'}${off ? ' · hidden from inbox (click to show)' : ' · click to filter'}"><span class="d"></span>${esc(SRC[s2].label)}</span>`;
   }).join('') + `<span class="src-pill soon"><span class="d"></span>JIRA</span>`;
+  $('#src-pills').querySelectorAll('[data-srcpill]').forEach(p =>
+    p.addEventListener('click', () => toggleSource(p.dataset.srcpill)));
 
   // footer counts
   const total = allItems().length;
@@ -827,7 +856,7 @@ function renderSystem() {
           <span class="k">Server time</span><span class="v">${h.ts ? fmtEpoch(h.ts) : '—'}</span>
           <span class="k">SSE (this tab)</span><span class="v ${state.sse.live ? '' : 'err'}">${state.sse.live ? 'connected' : 'disconnected'}</span>
         </div></div>
-      <div class="sys-card"><div class="sys-hd"><span class="nm">LLM</span><span class="st ${llm && llm.cli_available ? 'st-ok' : 'st-down'}">${llm ? (llm.cli_available ? 'AVAILABLE' : 'UNAVAILABLE') : 'UNKNOWN'}</span></div>
+      <div class="sys-card"><div class="sys-hd"><span class="nm">LLM</span><span class="st ${llm && (llm.available != null ? llm.available : llm.cli_available) ? 'st-ok' : 'st-down'}">${llm ? ((llm.available != null ? llm.available : llm.cli_available) ? 'AVAILABLE' : 'UNAVAILABLE') : 'UNKNOWN'}</span></div>
         <div class="sys-kv">
           <span class="k">Runtime</span><span class="v">${esc(llm ? llm.runtime : '—')}</span>
           <span class="k">Model</span><span class="v">${esc(llm ? llm.model : '—')}</span>

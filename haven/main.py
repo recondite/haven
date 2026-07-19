@@ -209,6 +209,19 @@ async def health() -> dict:
 async def llm_status() -> dict:
     from haven import llm
     node_pair = llm.node_entry_path()
+    is_local = config.LLM_MODE == "local"
+    # "available" reflects the ACTIVE runtime: CLI resolvable for cli mode, or
+    # the local endpoint actually answering /models for local mode.
+    if is_local:
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as c:
+                r = await c.get(config.LOCAL_LLM_BASE_URL.rstrip("/") + "/models")
+            available = r.status_code == 200
+        except Exception:
+            available = False
+    else:
+        available = llm.cli_available()
     return {
         "cli_available": llm.cli_available(),
         "cli_path": llm.cli_path(),
@@ -217,28 +230,30 @@ async def llm_status() -> dict:
             "cli_js": node_pair[1] if node_pair else None,
             "preferred": node_pair is not None,
         },
-        "model": config.LLM_MODEL,
+        "available": available,
+        "model": config.LOCAL_LLM_MODEL if is_local else config.LLM_MODEL,
         "runtime": config.LLM_MODE,
-        "local_base_url": config.LOCAL_LLM_BASE_URL if config.LLM_MODE == "local" else None,
+        "local_base_url": config.LOCAL_LLM_BASE_URL if is_local else None,
     }
 
 
 @app.get("/api/llm/test")
 @app.post("/api/llm/test")
 async def llm_test() -> dict:
-    """End-to-end test: spawn `claude --print` with a minimal prompt, verify it round-trips.
+    """End-to-end test of the ACTIVE runtime (claude CLI or local endpoint):
+    send a minimal prompt, verify it round-trips.
 
     Allows GET so it can be hit directly from the browser address bar.
     """
-    from haven import llm
+    from haven import runtime
     try:
-        raw = await llm.claude_call(
+        raw = await runtime.call(
             'Reply with exactly this JSON and nothing else: {"hello": "world"}',
-            timeout=30.0,
+            timeout=60.0,
         )
-        return {"ok": True, "response": raw[:1000]}
+        return {"ok": True, "runtime": config.LLM_MODE, "response": raw[:1000]}
     except Exception as e:
-        return {"ok": False, "error": str(e), "trace": traceback.format_exc()}
+        return {"ok": False, "runtime": config.LLM_MODE, "error": str(e), "trace": traceback.format_exc()}
 
 
 @app.get("/api/sse/stream")

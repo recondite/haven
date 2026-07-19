@@ -28,6 +28,7 @@ from haven.events import bus
 from haven.routers import (
     contacts,
     dispatch,
+    evals,
     freshservice,
     gmail,
     identity,
@@ -286,6 +287,7 @@ app.include_router(items.router)
 app.include_router(spine.router)
 app.include_router(dispatch.router)
 app.include_router(identity.router)
+app.include_router(evals.router)
 
 
 # ─── Static UI (mounted last so /api/* and /oauth/* take precedence) ───

@@ -241,6 +241,10 @@
         <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.8l5.5 2.4v3.4c0 3.2-2.3 5.6-5.5 6.6-3.2-1-5.5-3.4-5.5-6.6V4.2L8 1.8z"/><path d="M5.6 8l1.7 1.7L10.6 6.4"/></svg></span>
         Approvals <span class="badge amber" id="badge-appr">–</span>
       </button>
+      <button class="nav-item" data-view="ask">
+        <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.4"/><path d="M6.2 6.2a1.9 1.9 0 1 1 2.6 1.8c-.6.25-.8.6-.8 1.2"/><circle cx="8" cy="11.4" r=".5" fill="currentColor"/></svg></span>
+        Ask
+      </button>
       <button class="nav-item" data-view="people">
         <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5.7" cy="5.4" r="2.4"/><path d="M1.6 13.4c.5-2.3 2.1-3.6 4.1-3.6s3.6 1.3 4.1 3.6"/><circle cx="11.5" cy="5.8" r="1.9"/><path d="M11 9.9c1.8.1 3 1.2 3.4 3"/></svg></span>
         People
@@ -352,6 +356,7 @@ const state = {
   editingDraft: null,  // draft id currently being edited in the approvals pane
   people: null, identityCoverage: null,  // People view (lazy-loaded)
   system: null,        // /api/system/state (send mode, stuck actions, backups)
+  ask: { question: '', result: null, busy: false },  // M2A Ask-the-wiki
   selected: new Set(),  // multi-select: item keys checked for bulk actions
   selKey: null,          // inbox selection: "source|msg_id"
   selDraft: null,        // approvals selection: draft id
@@ -497,10 +502,11 @@ function scheduleRefetch(source) {
 const VIEWMETA = {
   inbox: ['Inbox', 'Action required across all sources'],
   approvals: ['Approvals', 'Agent-drafted replies awaiting your review — one approval, one send'],
+  ask: ['Ask', 'Answer from SecondBrain, cited — or an honest miss'],
   people: ['People', 'Per-person rollup: open work + requests to you'],
   system: ['System', 'Source health, auth, LLM runtime and send mode'],
 };
-const VIEW_KEYS = ['inbox', 'approvals', 'people', 'system'];
+const VIEW_KEYS = ['inbox', 'approvals', 'ask', 'people', 'system'];
 document.querySelectorAll('.nav-item[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
 function setView(v) {
   state.view = v;
@@ -553,7 +559,7 @@ function renderChrome() {
   const forced = state.system && state.system.send_mode && state.system.send_mode.forced_reason;
   $('#forced-banner').hidden = !forced;
   if (forced) $('#forced-reason').textContent = forced;
-  $('#content').classList.toggle('single', state.view === 'system');
+  $('#content').classList.toggle('single', state.view === 'system' || state.view === 'ask');
 
   // badges + counts — counted by thread, matching the collapsed inbox rows
   const vis = visibleItems();
@@ -609,11 +615,11 @@ function renderKeymap() {
   let h = '';
   if (state.view === 'inbox') {
     h = km(['j', 'k'], 'navigate') + km(['e'], 'done') + km(['s'], 'snooze 1h') + km(['S'], 'snooze tmrw')
-      + km(['c'], '→ linear') + km(['d'], 'draft reply') + km(['w'], '→ 2nd brain') + km(['x'], 'select') + km(['n', 'h'], 'noise / handled') + km(['1–4'], 'views');
+      + km(['c'], '→ linear') + km(['d'], 'draft reply') + km(['w'], '→ 2nd brain') + km(['x'], 'select') + km(['?'], 'ask') + km(['n', 'h'], 'noise / handled') + km(['1–5'], 'views');
   } else if (state.view === 'approvals') {
-    h = km(['j', 'k'], 'navigate') + km(['a'], 'approve') + km(['r'], 'reject') + km(['1–4'], 'views');
+    h = km(['j', 'k'], 'navigate') + km(['a'], 'approve') + km(['r'], 'reject') + km(['1–5'], 'views');
   } else {
-    h = km(['1–4'], 'views');
+    h = km(['1–5'], 'views');
   }
   $('#keymap').innerHTML = h;
 }
@@ -623,6 +629,7 @@ function render() {
   renderChrome();
   if (state.view === 'inbox') renderInbox();
   else if (state.view === 'approvals') renderApprovals();
+  else if (state.view === 'ask') renderAsk();
   else if (state.view === 'people') renderPeople();
   else renderSystem();
 }
@@ -957,6 +964,57 @@ async function approvalAction(id, act) {
   } catch (e) { toast(act + ' failed: ' + e.message, true); }
 }
 
+/* ---------- ASK (M2A) ---------- */
+function renderAsk() {
+  $('#detail-pane').innerHTML = '';
+  const r = state.ask.result;
+  const chip = (c) => {
+    const stale = c.status === 'deprecated' ? 'dep' : (c.age_days == null ? 'unk' : (c.age_days > 180 ? 'old' : 'ok'));
+    const s = stale === 'ok' ? 'background:var(--ok-dim);color:var(--ok)'
+      : stale === 'old' ? 'background:var(--warn-dim);color:var(--warn)'
+      : 'background:var(--err-dim);color:var(--err)';
+    return `<span class="tag" style="${s}">${stale === 'dep' ? 'DEPRECATED' : c.age_days == null ? 'no date' : c.age_days + 'd old'}</span>`;
+  };
+  $('#list-pane').innerHTML = `<div class="sys-wrap" style="max-width:720px">
+    <div class="sec-title" style="margin-top:0">Ask SecondBrain</div>
+    <div style="display:flex;gap:8px">
+      <input id="ask-input" placeholder="e.g. Where did we land on the RACI rollout?" value="${esc(state.ask.question)}"
+        style="flex:1;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font:inherit;font-size:13px;outline:none">
+      <button class="btn btn-primary" id="ask-go" ${state.ask.busy ? 'disabled' : ''}>${state.ask.busy ? 'Thinking…' : 'Ask'}</button>
+    </div>
+    <div style="font-size:10.5px;color:var(--faint);margin-top:6px">Answers come only from the wiki, cited. If it's not in there, Haven says so.</div>
+    ${r ? (r.answered
+      ? `<div class="sec-title">Answer</div><div class="draft-box">${esc(r.answer)}</div>
+         <div class="sec-title">Citations · ${r.citations.length}</div>
+         ${r.citations.map(c => `<div class="evi"><div class="evi-l1"><span class="evi-cite">[${c.n}] ${esc(c.path)}#${esc(c.heading)}</span>${chip(c)}</div></div>`).join('')}`
+      : `<div class="sec-title">No answer</div>
+         <div class="draft-box" style="border-color:var(--warn)">Not in SecondBrain — ${esc(r.reason || '')}.
+         ${r.citations && r.citations.length ? '<br><span style="font-size:11px;color:var(--muted)">Closest pages checked: ' + r.citations.map(c => esc(c.path)).join(' · ') + '</span>' : ''}</div>
+         <div style="margin-top:10px"><button class="btn btn-ghost" id="ask-flag">⚑ Flag as knowledge gap (drafts a stub page for approval)</button></div>`)
+    : ''}
+  </div>`;
+  const input = $('#ask-input');
+  input.addEventListener('input', () => { state.ask.question = input.value; });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAsk(); });
+  $('#ask-go').addEventListener('click', doAsk);
+  const flag = $('#ask-flag');
+  if (flag) flag.addEventListener('click', async () => {
+    try {
+      const res = await api('/api/knowledge/ask/flag-gap', { method: 'POST', body: JSON.stringify({ question: state.ask.question }) });
+      await fetchApprovals();
+      toast(`Gap flagged — stub draft #${res.draft_id} in Approvals`); render();
+    } catch (e) { toast('flag-gap failed: ' + e.message, true); }
+  });
+}
+async function doAsk() {
+  const q = (state.ask.question || '').trim();
+  if (!q || state.ask.busy) return;
+  state.ask.busy = true; render();
+  try { state.ask.result = await api('/api/knowledge/ask', { method: 'POST', body: JSON.stringify({ question: q }) }); }
+  catch (e) { toast('ask failed: ' + e.message, true); }
+  state.ask.busy = false; render();
+}
+
 /* ---------- PEOPLE ---------- */
 async function loadPeople() {
   try {
@@ -1140,7 +1198,13 @@ document.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
 
   // view switching
-  if (['1', '2', '3', '4'].includes(e.key)) { setView(VIEW_KEYS[Number(e.key) - 1]); e.preventDefault(); return; }
+  if (['1', '2', '3', '4', '5'].includes(e.key)) { setView(VIEW_KEYS[Number(e.key) - 1]); e.preventDefault(); return; }
+  // M2A: ? opens Ask from anywhere and focuses the input
+  if (e.key === '?') {
+    setView('ask'); e.preventDefault();
+    setTimeout(() => { const i = $('#ask-input'); if (i) i.focus(); }, 30);
+    return;
+  }
 
   if (state.view === 'inbox') {
     const order = orderedVisible();

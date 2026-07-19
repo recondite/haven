@@ -22,6 +22,35 @@ async def page(path: str) -> dict:
     return {"path": path, "content": content}
 
 
+@router.post("/ask")
+async def ask(payload: dict) -> dict:
+    """M2A: answer a question from SecondBrain only, with per-claim citations.
+    Honest miss when the wiki doesn't know."""
+    return await knowledge.ask(payload.get("question") or "")
+
+
+@router.post("/ask/flag-gap")
+async def flag_gap(payload: dict) -> dict:
+    """Turn an unanswerable question into curation work: a stub source-page
+    draft in the approval queue. Approve = the gap becomes a page to fill."""
+    question = (payload.get("question") or "").strip()
+    if not question:
+        raise HTTPException(400, "question required")
+    title = f"Open question: {question[:90]}"
+    target = knowledge.ingest_target(title, "source")
+    page_md = knowledge.build_page(
+        title, "source", ["haven-ask-gap"],
+        f"**Question Haven could not answer from SecondBrain:**\n\n> {question}\n\n"
+        f"_Research and replace this stub with the answer, or reject the draft._")
+    try:
+        executor.validate_wiki(page_md, target)
+    except executor.ExecutorError as e:
+        raise HTTPException(400, f"gap flag failed validation: {e}")
+    draft_id = spine.create_draft(None, "wiki", target, page_md,
+                                  evidence=[{"source": "ask-gap", "question": question[:300]}])
+    return {"draft_id": draft_id, "target": target, "status": "pending"}
+
+
 @router.post("/ingest")
 async def ingest(payload: dict) -> dict:
     """Draft a new SecondBrain page into the approval queue (no write until GT

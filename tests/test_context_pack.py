@@ -142,6 +142,47 @@ def test_render_pack_numbers_fragments(world):
     assert knowledge.render_pack({"fragments": [], "citations": []}) == ""
 
 
+# ─── ask (M2A) ───────────────────────────────────────────
+def test_ask_answers_from_wiki_only(world, monkeypatch):
+    from haven import runtime as rt
+    async def fake_call(prompt, model=None, timeout=60.0):
+        assert "ONLY the SecondBrain wiki context" in prompt
+        assert "Garfield" in prompt              # retrieved context present
+        return "Bring-up is gated on the Keysight bench [1]."
+    monkeypatch.setattr(rt, "call", fake_call)
+    res = run(knowledge.ask("When does Garfield bring-up start?"))
+    assert res["answered"] is True
+    assert any(c["path"].endswith("garfield.md") for c in res["citations"])
+
+
+def test_ask_honest_miss_no_pages(world, monkeypatch):
+    res = run(knowledge.ask("zebra kayak thermodynamics"))
+    assert res["answered"] is False and res["citations"] == []
+
+
+def test_ask_honest_miss_model_says_not_in_wiki(world, monkeypatch):
+    from haven import runtime as rt
+    async def fake_call(prompt, model=None, timeout=60.0):
+        return "NOT_IN_WIKI"
+    monkeypatch.setattr(rt, "call", fake_call)
+    res = run(knowledge.ask("Garfield budget line owner?"))
+    assert res["answered"] is False
+    assert res["citations"]                      # shows what was checked
+
+
+def test_ask_includes_summary_section(world, monkeypatch):
+    """Question-style queries get the lead facts even when a detail section
+    scores higher (the Mark-Wade-reports-to regression)."""
+    from haven import runtime as rt
+    captured = {}
+    async def fake_call(prompt, model=None, timeout=60.0):
+        captured["prompt"] = prompt
+        return "ok [1]"
+    monkeypatch.setattr(rt, "call", fake_call)
+    run(knowledge.ask("Garfield schedule Keysight"))
+    assert "#Summary" in captured["prompt"] or "Summary:" in captured["prompt"]
+
+
 # ─── grounded dispatch ───────────────────────────────────
 def test_draft_evidence_carries_wiki_citations(world, monkeypatch):
     class FakeStore:

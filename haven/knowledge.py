@@ -238,6 +238,60 @@ def render_pack(pack: dict) -> str:
     return "\n\n".join(lines) + "\n\n"
 
 
+# ─── Ask the wiki (M2A: answer problems quickly, honestly) ───────────────
+_NOT_IN_WIKI = "NOT_IN_WIKI"
+
+
+async def ask(question: str) -> dict:
+    """Answer a question FROM SecondBrain only. Composes strictly over retrieved
+    sections; if the wiki doesn't contain the answer, says so — never a
+    from-the-model's-head answer dressed as wiki truth."""
+    from haven import runtime  # late import: knowledge stays importable without LLM deps
+
+    question = (question or "").strip()
+    if not question:
+        return {"answered": False, "reason": "empty question", "citations": []}
+    terms = set(_tokens(question))
+    hits = [h for h in search(question, limit=4) if h["score"] >= 4]
+    fragments = []
+    for h in hits:
+        frag = _fragment_from_page(h["path"], terms)
+        if not frag:
+            continue
+        # Question-style queries often score a detail section above the lead, but
+        # person/entity leads carry the key facts (title/manager/team). Include
+        # the Summary section too whenever it isn't already the best match.
+        if frag["heading"] != "Summary":
+            lead = _fragment_from_page(h["path"], {"summary"})
+            if lead and lead["heading"] == "Summary":
+                fragments.append(lead)
+        fragments.append(frag)
+    fragments = fragments[:6]
+    if not fragments:
+        return {"answered": False, "reason": "no relevant SecondBrain pages", "citations": []}
+
+    ctx = "\n\n".join(
+        f"[{i}] {f['path']}#{f['heading']}"
+        f"{' (updated ' + f['updated'] + ')' if f['updated'] else ''}:\n{f['text'][:1200]}"
+        for i, f in enumerate(fragments, 1))
+    prompt = (
+        "Answer the question using ONLY the SecondBrain wiki context below. "
+        "Cite every factual claim as [n]. Be concise — bullets over prose. "
+        f"If the context does not contain the answer, reply with exactly {_NOT_IN_WIKI} "
+        "and nothing else.\n\n"
+        f"CONTEXT:\n{ctx}\n\nQUESTION: {question}\n\nANSWER:"
+    )
+    raw = (await runtime.call(prompt, timeout=120)).strip()
+    citations = [{"source": "secondbrain", "path": f["path"], "heading": f["heading"],
+                  "updated": f["updated"], "status": f["status"],
+                  "age_days": f["age_days"], "sha": f["sha"], "n": i}
+                 for i, f in enumerate(fragments, 1)]
+    if _NOT_IN_WIKI in raw:
+        return {"answered": False, "reason": "SecondBrain has related pages but not this answer",
+                "citations": citations}
+    return {"answered": True, "answer": raw, "citations": citations}
+
+
 # ─── Ingest (draft a schema-conformant page; write is approval-gated) ────
 _TYPE_DIR = {
     "person": "wiki/entities/people", "company": "wiki/entities/companies",

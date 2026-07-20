@@ -155,3 +155,75 @@ async def create_issue_from_email(payload: dict) -> dict:
     issue = res["issue"]
     log.info("Linear issue created: %s %s", issue.get("identifier"), issue.get("url"))
     return issue
+
+
+# stateId for a team's "completed" workflow state, cached per team in-process.
+_completed_state_cache: dict[str, tuple[str, str]] = {}
+
+
+async def _completed_state_for_issue(issue_id: str) -> tuple[str, str]:
+    """Resolve a completed-type workflow state (id, name) for the team that owns
+    `issue_id`. Cached per team. Picks the lowest-position 'completed' state
+    (typically "Done")."""
+    data = await _gql(
+        """
+        query ($id: String!) {
+          issue(id: $id) {
+            id
+            team {
+              id
+              states { nodes { id name type position } }
+            }
+          }
+        }
+        """,
+        {"id": issue_id},
+    )
+    issue = data.get("issue")
+    if not issue:
+        raise LinearError(f"Linear issue {issue_id} not found")
+    team = issue.get("team") or {}
+    team_id = team.get("id")
+    if team_id and team_id in _completed_state_cache:
+        return _completed_state_cache[team_id]
+    states = (team.get("states") or {}).get("nodes") or []
+    completed = [s for s in states if s.get("type") == "completed"]
+    if not completed:
+        raise LinearError("No 'completed' workflow state found for the issue's team")
+    completed.sort(key=lambda s: s.get("position") or 0)
+    chosen = completed[0]
+    result = (chosen["id"], chosen.get("name", "Done"))
+    if team_id:
+        _completed_state_cache[team_id] = result
+    return result
+
+
+async def close_issue(issue_id: str) -> dict:
+    """Transition a Linear issue to a completed ('Done') workflow state.
+
+    Per ground rules this is a *state transition*, not a delete — fully
+    reversible in Linear. We never call issueDelete or issueArchive here.
+    """
+    state_id, state_name = await _completed_state_for_issue(issue_id)
+    log.info("Closing Linear issue %s -> state %s (%s)", issue_id, state_name, state_id)
+    data = await _gql(
+        """
+        mutation ($id: String!, $stateId: String!) {
+          issueUpdate(id: $id, input: { stateId: $stateId }) {
+            success
+            issue { id identifier url state { id name type } }
+          }
+        }
+        """,
+        {"id": issue_id, "stateId": state_id},
+    )
+    res = data.get("issueUpdate") or {}
+    if not res.get("success") or not res.get("issue"):
+        raise LinearError(f"issueUpdate did not succeed: {data}")
+    issue = res["issue"]
+    log.info(
+        "Linear issue closed: %s -> %s",
+        issue.get("identifier"),
+        (issue.get("state") or {}).get("name"),
+    )
+    return issue

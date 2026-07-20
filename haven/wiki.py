@@ -1,5 +1,10 @@
 """LLM-maintained curated wiki.
 
+DEPRECATED (plan v4 Phase 3, 2026-07-19): SecondBrain is now Haven's single
+knowledge store — read via haven/knowledge.py (SecondBrain-first search) and
+written via the approval-gated ingest flow (POST /api/knowledge/ingest). This
+private data/wiki store is retired; kept read-only for back-compat, not extended.
+
 Pattern from the LLM Wiki idea: a persistent, compounding knowledge base where
 the LLM does all the bookkeeping. Garth marks important emails; Haven hands the
 email + the current wiki state + the schema to Claude; Claude returns the file
@@ -22,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from haven import config, llm
+from haven import config, runtime
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +186,7 @@ async def ingest_source(item: dict[str, Any], body_text: str) -> dict[str, Any]:
     prompt = _build_ingest_prompt(schema, state, item, body_text)
 
     # Use the more capable model — ingest is heavy and infrequent.
-    result = await llm.claude_json(prompt, model=config.LLM_MODEL, timeout=180.0)
+    result = await runtime.call_json(prompt, model=config.LLM_MODEL, timeout=180.0)
 
     files = result.get("files") if isinstance(result, dict) else None
     if not isinstance(files, list):

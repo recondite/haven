@@ -139,7 +139,7 @@ async def slack_poll(force: bool = False) -> dict:
             "suggested_reply": "",
         }
 
-        sem = asyncio.Semaphore(5)
+        sem = asyncio.Semaphore(config.SCORE_CONCURRENCY)  # serialized on local engines
 
         async def _score_one(idx):
             s = new_items[idx]

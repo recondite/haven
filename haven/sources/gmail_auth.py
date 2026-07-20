@@ -1,5 +1,6 @@
 """Gmail OAuth flow — generates auth URL, handles callback, persists token."""
 import asyncio
+import json
 import os
 import tempfile
 
@@ -17,7 +18,22 @@ from google_auth_oauthlib.flow import Flow
 # gmail.modify is read + label/state changes. It does NOT grant permanent delete
 # (those require gmail.modify+gmail.delete or full https://mail.google.com/). Per
 # Haven's ground rules, archive (INBOX label removal) is allowed; delete is not.
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+# gmail.send (added with GT's explicit sign-off, 2026-07-19) lets the executor
+# send GT-approved reply drafts. Send-only: it grants no read or delete beyond
+# what gmail.modify already covers. Existing tokens lack it — /oauth/authorize
+# must be re-run once; /api/auth/gmail/status surfaces scopes_ok until then.
+# drive.readonly (GT-approved 2026-07-19, build plan v2 M6) lets the document
+# ingest read/export Google Docs the user links. Read-only: no create/edit/delete.
+# drive.file (GT-approved 2026-07-19) lets Haven create/edit ONLY the Docs it
+# makes — least privilege: it cannot see, edit, or delete the user's other Drive
+# files (that would need full 'drive', deliberately not requested). Delete is
+# never performed regardless (ground rule #1; executor has no delete verb).
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive.file",
+]
 
 
 class GmailAuth:
@@ -135,6 +151,47 @@ class GmailAuth:
                 )
             return self._service
 
+    async def get_drive_service(self):
+        """Authorized Drive v3 service (read-only scope). None if unauthorized or
+        the drive.readonly scope hasn't been granted yet (needs re-auth)."""
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+        if not self.has_required_scopes():
+            return None
+        async with self._refresh_lock:
+            if self._creds is None:
+                self._creds = self.credentials()
+            creds = self._creds
+            if creds is None:
+                return None
+            if creds.expired and creds.refresh_token:
+                await asyncio.to_thread(creds.refresh, Request())
+                self._persist_token(creds.to_json())
+            return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+    def new_http(self, timeout: int = 30):
+        """Return a fresh AuthorizedHttp wrapping a brand-new httplib2.Http.
+
+        httplib2.Http is NOT thread-safe — it keeps a single TLS socket per host —
+        so the cached service's shared http cannot be used from the concurrent
+        `asyncio.to_thread` workers in the poll pipeline (Pass A conc=10, Pass C
+        conc=5). Two threads writing the same socket corrupt the TLS stream, which
+        surfaces as "[SSL] record layer failure" and read timeouts. Each threaded
+        `.execute()` must therefore pass its own http from this method.
+
+        Relies on get_service() having already loaded/refreshed creds under the
+        async lock, so this stays synchronous and safe to call inside a worker
+        thread.
+        """
+        import httplib2
+        from google_auth_httplib2 import AuthorizedHttp
+
+        if self._creds is None:
+            self._creds = self.credentials()
+        if self._creds is None:
+            raise RuntimeError("Gmail not authorized — connect Gmail first")
+        return AuthorizedHttp(self._creds, http=httplib2.Http(timeout=timeout))
+
     def is_authed(self) -> bool:
         return self.token_path.exists()
 
@@ -144,9 +201,16 @@ class GmailAuth:
         return Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
 
     def has_required_scopes(self) -> bool:
-        """True if the persisted token covers all SCOPES we now need."""
-        creds = self.credentials()
-        if creds is None:
+        """True if the persisted token covers all SCOPES we now need.
+
+        Reads the token file's own "scopes" field — Credentials.from_authorized
+        _user_file(path, SCOPES) sets .scopes to the REQUESTED list, so checking
+        creds.scopes against SCOPES was a tautology (always True).
+        """
+        if not self.is_authed():
             return False
-        granted = set(creds.scopes or [])
+        try:
+            granted = set(json.loads(self.token_path.read_text(encoding="utf-8")).get("scopes") or [])
+        except Exception:
+            return False
         return all(s in granted for s in SCOPES)

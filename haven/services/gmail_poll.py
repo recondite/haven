@@ -30,6 +30,29 @@ from haven.sources.gmail import GmailFetcher, GmailItem
 
 log = logging.getLogger("haven")
 
+# Hard ceiling on the enumerated id list (matches GmailFetcher.list_message_ids
+# default). Set high so the unread set is enumerated to completion for any real
+# inbox — the id list is cheap and completeness makes the cache reconcile
+# reliable. Only if a poll actually returns this many do we skip the prune.
+LIST_MAX_TOTAL = 2000
+
+# Max NEW (uncached) items to fully fetch + score per poll. Enumeration can now
+# return a large unread set (Gmail over-marks "important"); this bounds the
+# expensive per-poll work to roughly the pre-pagination volume. Reconcile/prune
+# still run over the COMPLETE set — only processing is capped.
+PROCESS_CAP = 100
+
+
+def resolved_ids(cached_items: list[dict], live_ids: list[str]) -> list[str]:
+    """Cached Gmail ids that have left the live unread/important set (read,
+    archived, or deprioritised in Gmail directly) and were NOT handled inside
+    Haven — i.e. the ones to drop so Haven mirrors the inbox. Items with
+    handled_at are retained (Hide-handled toggle / unmark). The caller must skip
+    this when the live id list may be capped."""
+    live = set(live_ids)
+    return [it["msg_id"] for it in cached_items
+            if it.get("msg_id") and it["msg_id"] not in live and not it.get("handled_at")]
+
 
 async def run(force: bool = False) -> dict:
     """Poll Gmail and return the current matching set. Raises HTTPException on
@@ -39,7 +62,7 @@ async def run(force: bool = False) -> dict:
 
     # Queries come from agents/gmail.yaml (editable without code changes).
     cfg = filters.load_config()
-    queries = cfg.get("queries") or ["is:important is:unread in:inbox"]
+    queries = cfg.get("queries") or ["is:important is:unread in:inbox -label:ignore"]
     fetcher = GmailFetcher(auth=gmail_auth, queries=queries)
 
     try:
@@ -58,9 +81,24 @@ async def run(force: bool = False) -> dict:
         cached = cursor_store.get_cached_payloads("gmail", all_ids)
         previously_rejected = cursor_store.get_rejected_set("gmail", all_ids)
 
+    # Reconcile: the query IS the live AR set. A cached item whose id is no longer
+    # in it has been read / archived / deprioritised in Gmail directly, so drop it
+    # — Haven mirrors the inbox, it doesn't hoard resolved mail. Keep items Haven
+    # itself handled (retained for the Hide-handled toggle + unmark). Skip only if
+    # the id list hit its hard ceiling (can't tell "read" from "didn't fit").
+    if not force and len(all_ids) < LIST_MAX_TOTAL:
+        stale = resolved_ids(cursor_store.list_cached("gmail"), all_ids)
+        for mid in stale:
+            cursor_store.delete_cached("gmail", mid)
+            await bus.publish("gmail_resolved", {"msg_id": mid})
+        if stale:
+            log.info("Gmail poll: pruned %d resolved item(s) no longer in the unread set", len(stale))
+
     # IDs that need fresh processing this turn — excludes already-cached and
-    # previously-rejected items.
+    # previously-rejected items, then capped so a large unread set doesn't turn
+    # one poll into hundreds of fetch+score calls (the tail is picked up next poll).
     to_process = [mid for mid in all_ids if mid not in cached and mid not in previously_rejected]
+    to_process = to_process[:PROCESS_CAP]
 
     # Pass A: cheap metadata-only fetch for filter decision (parallel, conc=10).
     metadata_by_id: dict[str, dict] = {}
@@ -89,6 +127,7 @@ async def run(force: bool = False) -> dict:
     survivor_ids: list[str] = []
     survivor_flags: dict[str, dict] = {}
     noise_ids: set[str] = set()  # msg_ids to add the "noise" Gmail label to
+    travel_ids: set[str] = set()  # msg_ids to add the "travel" Gmail label to
     for mid, meta in metadata_by_id.items():
         decision, reason, flags = filters.apply_filter(meta)
         if decision != filters.Decision.REJECT and filters.auto_approve_from_history(meta):
@@ -133,7 +172,8 @@ async def run(force: bool = False) -> dict:
     scores: list[dict] = []
     if items_to_score:
         log.info("LLM scoring: %d items, concurrency 5", len(items_to_score))
-        scores = await scoring.score_emails_concurrent(items_to_score, max_concurrent=5)
+        from haven import config
+        scores = await scoring.score_emails_concurrent(items_to_score, max_concurrent=config.SCORE_CONCURRENCY)
     score_by_id = {item.msg_id: score for item, score in zip(items_to_score, scores)}
 
     # Pass E: build response — only items the user should see.
@@ -172,6 +212,21 @@ async def run(force: bool = False) -> dict:
             if payload.get("urgency") == "low":
                 payload["urgency"] = "med"
 
+        # Priority approvals (e.g. Coupa) are pinned to tag="approval" and
+        # urgency="urgent" regardless of LLM judgment — these block spend/workflow
+        # and must never be buried.
+        if flags.get("is_priority_approval"):
+            payload["tag"] = "approval"
+            payload["urgency"] = "urgent"
+            payload["action_required"] = True
+
+        # Travel notifications (flagged by the deterministic filter) are pinned
+        # to tag="travel" regardless of what the LLM guessed — they're never
+        # noise — and get the "travel" Gmail label below.
+        if flags.get("is_travel"):
+            payload["tag"] = "travel"
+            travel_ids.add(mid)
+
         # LLM-tagged noise after the metadata filter passed — still apply the
         # Gmail "noise" label so it's filterable in Gmail itself.
         if payload.get("tag") == "noise":
@@ -202,6 +257,16 @@ async def run(force: bool = False) -> dict:
         except Exception as e:
             log.warning("Failed to apply noise label: %s", e)
 
+    # Apply the "travel" label to airline/hotel/car-rental confirmations so they
+    # are filterable in Gmail (search: "label:travel"). Best-effort.
+    labeled_travel = 0
+    if travel_ids:
+        try:
+            labeled_travel = await fetcher.label_messages(list(travel_ids), "travel")
+            log.info("Applied 'travel' label to %d items", labeled_travel)
+        except Exception as e:
+            log.warning("Failed to apply travel label: %s", e)
+
     summary = {
         "queried_total": len(all_ids),
         "new_count": new_count,
@@ -211,6 +276,7 @@ async def run(force: bool = False) -> dict:
         "scored_by_llm": len(items_to_score),
         "labeled_haven": labeled_count,
         "labeled_noise": labeled_noise,
+        "labeled_travel": labeled_travel,
         "errors": errors,
         "items": items,
         "total_seen_all_time": cursor_store.seen_count("gmail"),

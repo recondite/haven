@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<!-- OPTION B: The Calm Triage Flow
+     - One item at a time: Haven decides what's next; GT only decides what to do about it. A single hero card, a faded "up next" deck, and a visible daily progress meter replace the wall of rows.
+     - Approvals are a first-class mode, not a tab: a two-key mode switch (Triage / Approvals) flips the whole stage; each agent draft is shown with its evidence citations, an Edit affordance, and a persistent DRY-RUN banner. One approval = one send.
+     - Inbox-zero psychology: every action (Done / Snooze / Linear / Approve / Reject) advances the flow with a calm micro-transition, the progress ring fills, and clearing the queue earns a deliberate "all clear" state. Keyboard-first (E/S/L/R, A/X, Tab).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haven — Calm Triage</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235e6ad2'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='-apple-system,Segoe UI,Roboto,sans-serif' font-weight='700' font-size='18' fill='white'%3EH%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-soft: #11151d;
+    --panel: #171b24;
+    --panel-2: #1e2330;
+    --panel-3: #262c3b;
+    --text: #e9ebf1;
+    --muted: #8b93a7;
+    --faint: #5b6272;
+    --accent: #5e6ad2;
+    --accent-soft: rgba(94,106,210,0.14);
+    --accent-hover: #7681e4;
+    --ok: #3fb950;
+    --ok-soft: rgba(63,185,80,0.12);
+    --warn: #d29922;
+    --warn-soft: rgba(210,153,34,0.12);
+    --err: #f85149;
+    --err-soft: rgba(248,81,73,0.10);
+    --travel: #58a6ff;
+    --border: #262c3a;
+    --border-soft: #1e2330;
+    --radius: 14px;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 600px at 50% -200px, #141a26 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  button { font-family: inherit; }
+
+  /* ============ HEADER ============ */
+  header {
+    position: sticky; top: 0; z-index: 40;
+    background: rgba(13,17,23,0.85);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .hd { max-width: 1080px; margin: 0 auto; padding: 12px 24px;
+        display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: -0.02em; }
+  .brand .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent);
+    display: grid; place-items: center; font-size: 14px; color: #fff; font-weight: 800; }
+
+  .mode-switch { display: flex; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 3px; gap: 2px; }
+  .mode-switch button {
+    border: none; background: transparent; color: var(--muted); cursor: pointer;
+    padding: 6px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; gap: 7px; transition: all .18s ease;
+  }
+  .mode-switch button.active { background: var(--accent); color: #fff; }
+  .mode-switch .mbadge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px;
+    background: rgba(255,255,255,0.14); font-variant-numeric: tabular-nums; }
+  .mode-switch button:not(.active) .mbadge { background: var(--panel-3); color: var(--text); }
+  .mode-switch button:not(.active):hover { color: var(--text); }
+
+  .hd-spacer { flex: 1; }
+
+  .src-pills { display: flex; gap: 6px; align-items: center; }
+  .src-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; cursor: default; }
+  .src-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 5px rgba(63,185,80,0.6); }
+  .src-pill.down .dot { background: var(--err); box-shadow: 0 0 5px rgba(248,81,73,0.6); }
+  .src-pill.soon { opacity: 0.45; border-style: dashed; }
+  .src-pill.soon .dot { background: var(--faint); box-shadow: none; }
+
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .live .beacon { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); position: relative; }
+  .live .beacon::after { content: ""; position: absolute; inset: -4px; border-radius: 50%;
+    border: 1px solid var(--ok); opacity: 0; animation: ping 2.4s ease-out infinite; }
+  @keyframes ping { 0% { transform: scale(.5); opacity: .7; } 80% { transform: scale(1.4); opacity: 0; } 100% { opacity: 0; } }
+
+  .quiet { font-size: 11px; color: var(--faint); display: inline-flex; align-items: center; gap: 5px; }
+  .icon-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 14px;
+    display: grid; place-items: center; transition: all .15s; }
+  .icon-btn:hover { color: var(--text); border-color: var(--accent); }
+
+  /* ============ SUBHEADER: progress + counts ============ */
+  .subhd { max-width: 760px; margin: 26px auto 0; padding: 0 24px;
+    display: flex; align-items: center; gap: 18px; }
+  .ring-wrap { display: flex; align-items: center; gap: 12px; }
+  .ring { width: 46px; height: 46px; }
+  .ring circle { fill: none; stroke-width: 4; }
+  .ring .track { stroke: var(--panel-3); }
+  .ring .fill { stroke: var(--accent); stroke-linecap: round;
+    transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset .6s cubic-bezier(.3,.8,.3,1); }
+  .ring text { fill: var(--text); font-size: 13px; font-weight: 700; font-family: var(--mono); }
+  .prog-copy .big { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .prog-copy .small { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .prog-copy .big em { font-style: normal; color: var(--accent-hover); }
+
+  .counts { margin-left: auto; display: flex; gap: 8px; }
+  .cnt { font-size: 11px; color: var(--muted); background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 11px; display: flex; align-items: baseline; gap: 6px; cursor: default; }
+  .cnt b { font-size: 14px; font-variant-numeric: tabular-nums; color: var(--text); }
+  .cnt.ar b { color: var(--err); }
+  .cnt.appr b { color: var(--warn); }
+  .cnt.reply b { color: var(--travel); }
+
+  /* ============ STAGE ============ */
+  .stage { max-width: 760px; margin: 22px auto 0; padding: 0 24px 60px; position: relative; }
+  .mode-panel { display: none; }
+  .mode-panel.active { display: block; animation: modein .28s ease; }
+  @keyframes modein { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* ---- Hero card ---- */
+  .hero {
+    background: linear-gradient(180deg, var(--panel-2) 0%, var(--panel) 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 30px 34px 26px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+    position: relative;
+    transition: transform .3s cubic-bezier(.3,.8,.3,1), opacity .3s ease;
+  }
+  .hero.leaving { transform: translateX(60px) rotate(1.2deg); opacity: 0; }
+  .hero.leaving-snooze { transform: translateY(40px) scale(.96); opacity: 0; }
+  .hero.entering { animation: enter .32s cubic-bezier(.3,.8,.3,1); }
+  @keyframes enter { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+
+  .hero-top { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+  .srcchip { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600;
+    color: var(--muted); background: var(--bg-soft); border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; }
+  .srcchip .glyph { font-size: 13px; }
+  .tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    border-radius: 6px; padding: 3px 9px; }
+  .tag.approval { background: var(--warn-soft); color: var(--warn); }
+  .tag.action { background: var(--accent-soft); color: var(--accent-hover); }
+  .tag.fyi { background: rgba(139,147,167,0.12); color: var(--muted); }
+  .tag.travel { background: rgba(88,166,255,0.12); color: var(--travel); }
+  .urg { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    display: inline-flex; align-items: center; gap: 5px; }
+  .urg::before { content: ""; width: 7px; height: 7px; border-radius: 50%; }
+  .urg.urgent { color: var(--err); } .urg.urgent::before { background: var(--err); }
+  .urg.high { color: var(--warn); } .urg.high::before { background: var(--warn); }
+  .urg.med { color: var(--travel); } .urg.med::before { background: var(--travel); }
+  .urg.low { color: var(--faint); } .urg.low::before { background: var(--faint); }
+  .hero-time { margin-left: auto; font-size: 12px; color: var(--faint); font-family: var(--mono); }
+
+  .hero .sender { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .hero .sender a { color: var(--travel); text-decoration: none; border-bottom: 1px dashed rgba(88,166,255,0.4); cursor: pointer; }
+  .hero .sender a:hover { border-bottom-style: solid; }
+  .hero h2 { margin: 0 0 12px; font-size: 22px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.3; }
+  .hero .snippet { font-size: 14.5px; line-height: 1.65; color: var(--muted); margin: 0 0 6px; max-width: 62ch; }
+  .hero .why { margin-top: 16px; font-size: 12px; color: var(--faint); display: flex; gap: 8px; align-items: baseline; }
+  .hero .why .k { color: var(--accent-hover); font-weight: 700; text-transform: uppercase; letter-spacing: .07em; font-size: 10.5px; white-space: nowrap; }
+
+  .hero-actions { display: flex; gap: 8px; margin-top: 24px; flex-wrap: wrap; align-items: center; }
+  .act { border: 1px solid var(--border); background: var(--panel-3); color: var(--text);
+    border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px; transition: all .15s; }
+  .act:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .act.primary { background: var(--ok-soft); border-color: rgba(63,185,80,0.4); color: var(--ok); }
+  .act.primary:hover { background: rgba(63,185,80,0.2); }
+  .act kbd, .appr-actions kbd { font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  .snz-wrap { position: relative; }
+  .snz-menu { position: absolute; bottom: calc(100% + 6px); left: 0; background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 9px; padding: 4px; display: none; min-width: 130px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.5); z-index: 5; }
+  .snz-menu.open { display: block; animation: enter .16s ease; }
+  .snz-menu button { display: block; width: 100%; text-align: left; border: none; background: transparent;
+    color: var(--text); font-size: 13px; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+  .snz-menu button:hover { background: var(--accent-soft); }
+
+  /* ---- Up-next deck ---- */
+  .upnext { margin-top: 30px; }
+  .upnext-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--faint); margin-bottom: 12px; display: flex; align-items: baseline; gap: 8px; }
+  .upnext-label .cnt-rest { font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .next-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    background: var(--panel); border: 1px solid var(--border-soft); border-radius: 10px; margin-bottom: 8px;
+    transition: all .3s ease; }
+  .next-card:nth-child(2) { opacity: .8; }
+  .next-card:nth-child(3) { opacity: .55; }
+  .next-card:nth-child(4) { opacity: .35; }
+  .next-card .glyph { font-size: 15px; width: 22px; text-align: center; }
+  .next-card .nc-main { flex: 1; min-width: 0; }
+  .next-card .nc-subj { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .next-card .nc-meta { font-size: 11px; color: var(--faint); margin-top: 2px; }
+  .next-card .tag { font-size: 9.5px; padding: 2px 7px; flex-shrink: 0; }
+  .more-note { text-align: center; font-size: 12px; color: var(--faint); padding: 6px 0 0; }
+
+  /* ---- All clear ---- */
+  .allclear { text-align: center; padding: 70px 20px; display: none; }
+  .allclear.show { display: block; animation: enter .4s ease; }
+  .allclear .halo { width: 74px; height: 74px; margin: 0 auto 20px; border-radius: 50%;
+    background: var(--ok-soft); display: grid; place-items: center; font-size: 32px; color: var(--ok);
+    border: 1px solid rgba(63,185,80,0.3); }
+  .allclear h3 { margin: 0 0 8px; font-size: 20px; font-weight: 650; }
+  .allclear p { color: var(--muted); font-size: 13.5px; margin: 0; }
+
+  /* ============ APPROVALS MODE ============ */
+  .dryrun { display: flex; align-items: center; gap: 10px; background: var(--warn-soft);
+    border: 1px solid rgba(210,153,34,0.35); color: var(--warn); border-radius: 10px;
+    padding: 10px 16px; font-size: 12.5px; font-weight: 600; margin-bottom: 18px; }
+  .dryrun .dr-badge { background: var(--warn); color: #1a1400; font-size: 10px; font-weight: 800;
+    letter-spacing: .08em; border-radius: 5px; padding: 2px 7px; }
+  .dryrun span.dr-sub { font-weight: 500; color: rgba(210,153,34,0.75); }
+
+  .appr-progress { font-size: 12px; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
+  .appr-dots { display: flex; gap: 5px; }
+  .appr-dots i { width: 22px; height: 4px; border-radius: 2px; background: var(--panel-3); }
+  .appr-dots i.done-ok { background: var(--ok); }
+  .appr-dots i.done-no { background: var(--err); }
+  .appr-dots i.cur { background: var(--accent); }
+
+  .draft-card { background: linear-gradient(180deg, var(--panel-2) 0%, var(--panel) 100%);
+    border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.45); transition: transform .3s cubic-bezier(.3,.8,.3,1), opacity .3s ease; }
+  .draft-card.leaving-ok { transform: translateY(-30px); opacity: 0; }
+  .draft-card.leaving-no { transform: translateX(-50px); opacity: 0; }
+  .draft-card.entering { animation: enter .32s cubic-bezier(.3,.8,.3,1); }
+
+  .draft-head { padding: 20px 28px 16px; border-bottom: 1px solid var(--border-soft); }
+  .draft-head .dh-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .draft-head h3 { margin: 10px 0 4px; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+  .draft-head .to { font-size: 12.5px; color: var(--muted); }
+  .draft-head .to b { color: var(--text); font-weight: 600; }
+  .agent-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+    color: var(--accent-hover); background: var(--accent-soft); border-radius: 20px; padding: 3px 10px; }
+
+  .draft-body { padding: 20px 28px; }
+  .draft-text { font-size: 14px; line-height: 1.7; color: var(--text); white-space: pre-line;
+    background: var(--bg-soft); border: 1px solid var(--border-soft); border-radius: 10px;
+    padding: 16px 20px; position: relative; }
+  .draft-text[contenteditable="true"] { border-color: var(--accent); outline: none;
+    box-shadow: 0 0 0 3px var(--accent-soft); }
+  .cite { display: inline-block; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+    color: var(--accent-hover); background: var(--accent-soft); border-radius: 4px; padding: 0 5px;
+    cursor: pointer; vertical-align: baseline; margin: 0 1px; }
+  .cite:hover { background: rgba(94,106,210,0.3); }
+  .edit-row { display: flex; justify-content: flex-end; margin-top: 8px; gap: 8px; }
+  .edit-btn { background: transparent; border: none; color: var(--muted); font-size: 12px; cursor: pointer;
+    display: inline-flex; gap: 6px; align-items: center; padding: 4px 8px; border-radius: 6px; }
+  .edit-btn:hover { color: var(--text); background: var(--panel-3); }
+  .edit-btn.saving { color: var(--ok); }
+
+  .evidence { padding: 0 28px 20px; }
+  .evidence h4 { margin: 0 0 10px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--faint); }
+  .ev-item { display: flex; gap: 12px; padding: 10px 14px; background: var(--bg-soft);
+    border: 1px solid var(--border-soft); border-radius: 9px; margin-bottom: 6px; font-size: 12.5px; }
+  .ev-item .ev-ref { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--accent-hover);
+    background: var(--accent-soft); border-radius: 4px; padding: 1px 6px; height: fit-content; margin-top: 1px; flex-shrink: 0; }
+  .ev-item .ev-txt { color: var(--muted); line-height: 1.5; }
+  .ev-item .ev-txt b { color: var(--text); font-weight: 600; }
+  .ev-item .ev-src { color: var(--faint); font-size: 11px; margin-top: 2px; }
+  .ev-item.flash { animation: evflash 1.2s ease; }
+  @keyframes evflash { 0%, 40% { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); } 100% { border-color: var(--border-soft); box-shadow: none; } }
+
+  .appr-actions { display: flex; gap: 10px; padding: 18px 28px 24px; border-top: 1px solid var(--border-soft);
+    align-items: center; }
+  .appr-btn { flex: 0 0 auto; border-radius: 10px; padding: 11px 26px; font-size: 14px; font-weight: 700;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 9px; border: 1px solid transparent; transition: all .15s; }
+  .appr-btn.approve { background: var(--ok); color: #04150a; }
+  .appr-btn.approve:hover { filter: brightness(1.12); }
+  .appr-btn.reject { background: transparent; border-color: var(--border); color: var(--err); }
+  .appr-btn.reject:hover { background: var(--err-soft); border-color: rgba(248,81,73,0.4); }
+  .appr-note { margin-left: auto; font-size: 11.5px; color: var(--faint); text-align: right; line-height: 1.5; }
+
+  /* ============ FOOTER: filters + shortcuts ============ */
+  .flow-foot { max-width: 760px; margin: 34px auto 0; padding: 0 24px 50px; }
+  .filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 14px 18px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: 12px; }
+  .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .toggle .tk { width: 30px; height: 17px; background: var(--panel-3); border-radius: 10px; position: relative; transition: background .18s; }
+  .toggle .tk::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px;
+    background: var(--muted); border-radius: 50%; transition: all .18s; }
+  .toggle.on .tk { background: var(--accent); }
+  .toggle.on .tk::after { left: 15px; background: #fff; }
+  .fdiv { width: 1px; height: 18px; background: var(--border); }
+  .wl-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text);
+    background: var(--panel-3); border: 1px solid var(--border); border-radius: 20px; padding: 3px 6px 3px 11px; }
+  .chip button { background: transparent; border: none; color: var(--faint); cursor: pointer; font-size: 12px;
+    padding: 0 4px; border-radius: 50%; line-height: 1; }
+  .chip button:hover { color: var(--err); }
+  .chip-add { background: transparent; border: 1px dashed var(--border); color: var(--faint);
+    border-radius: 20px; padding: 3px 11px; font-size: 11.5px; cursor: pointer; }
+  .chip-add:hover { color: var(--text); border-color: var(--accent); }
+  .kbd-hints { text-align: center; margin-top: 18px; font-size: 11px; color: var(--faint); }
+  .kbd-hints kbd { font-family: var(--mono); font-size: 10px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; margin: 0 2px; }
+
+  /* ============ DRAWERS (person rollup / system health) ============ */
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 360px; max-width: 90vw;
+    background: var(--panel); border-left: 1px solid var(--border); z-index: 60;
+    transform: translateX(100%); transition: transform .28s cubic-bezier(.3,.8,.3,1);
+    box-shadow: -20px 0 50px rgba(0,0,0,0.5); overflow-y: auto; }
+  .drawer.open { transform: none; }
+  .drawer-hd { display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 22px; border-bottom: 1px solid var(--border-soft); position: sticky; top: 0; background: var(--panel); }
+  .drawer-hd h3 { margin: 0; font-size: 15px; font-weight: 650; }
+  .drawer-hd .soon-tag { font-size: 9.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--warn); background: var(--warn-soft); border-radius: 5px; padding: 2px 7px; margin-left: 8px; }
+  .drawer-bd { padding: 18px 22px; }
+  .drawer-bd .sec { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--faint); margin: 16px 0 8px; }
+  .drawer-bd .sec:first-child { margin-top: 0; }
+  .mini-row { display: flex; gap: 10px; align-items: baseline; padding: 8px 10px; background: var(--bg-soft);
+    border: 1px solid var(--border-soft); border-radius: 8px; margin-bottom: 6px; font-size: 12.5px; }
+  .mini-row .mr-src { font-family: var(--mono); font-size: 10px; color: var(--accent-hover); flex-shrink: 0; }
+  .mini-row .mr-txt { color: var(--muted); }
+  .health-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--bg-soft);
+    border: 1px solid var(--border-soft); border-radius: 8px; margin-bottom: 6px; font-size: 12.5px; }
+  .health-row .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .health-row.bad .dot { background: var(--err); }
+  .health-row .hr-name { font-weight: 600; }
+  .health-row .hr-det { margin-left: auto; color: var(--faint); font-size: 11px; font-family: var(--mono); }
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 55; opacity: 0;
+    pointer-events: none; transition: opacity .25s; }
+  .scrim.show { opacity: 1; pointer-events: auto; }
+
+  /* ============ TOAST ============ */
+  .toast { position: fixed; bottom: 26px; left: 50%; transform: translate(-50%, 20px); z-index: 80;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 10px; padding: 10px 18px; font-size: 13px; font-weight: 600;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.5); opacity: 0; pointer-events: none;
+    transition: all .25s cubic-bezier(.3,.8,.3,1); display: flex; gap: 9px; align-items: center; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast .t-ok { color: var(--ok); } .toast .t-warn { color: var(--warn); } .toast .t-err { color: var(--err); }
+
+  @media (max-width: 720px) {
+    .hd { flex-wrap: wrap; }
+    .src-pills { order: 5; width: 100%; }
+    .hero { padding: 22px 20px; }
+    .counts { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hd">
+    <div class="brand"><span class="logo">H</span> Haven</div>
+
+    <div class="mode-switch" role="tablist" aria-label="Mode">
+      <button id="modeTriage" class="active" onclick="setMode('triage')">Triage <span class="mbadge" id="triageBadge">16</span></button>
+      <button id="modeApprovals" onclick="setMode('approvals')">Approvals <span class="mbadge" id="apprBadge">3</span></button>
+    </div>
+
+    <div class="hd-spacer"></div>
+
+    <div class="src-pills" aria-label="Source health">
+      <span class="src-pill" title="Gmail — last poll 40s ago"><span class="dot"></span>Gmail</span>
+      <span class="src-pill" title="Slack — last poll 12s ago"><span class="dot"></span>Slack</span>
+      <span class="src-pill" title="Freshservice — last poll 2m ago"><span class="dot"></span>Freshservice</span>
+      <span class="src-pill down" title="Otter.ai — auth expired 42m ago"><span class="dot"></span>Otter</span>
+      <span class="src-pill soon" title="JIRA — coming soon"><span class="dot"></span>JIRA</span>
+    </div>
+
+    <span class="live"><span class="beacon"></span>live</span>
+    <span class="quiet" title="Quiet hours: 21:00–07:00">&#127769; 21:00–07:00</span>
+    <button class="icon-btn" title="System health" onclick="openDrawer('health')">&#9881;</button>
+  </div>
+</header>
+
+<div class="subhd">
+  <div class="ring-wrap">
+    <svg class="ring" viewBox="0 0 46 46" aria-hidden="true">
+      <circle class="track" cx="23" cy="23" r="19"></circle>
+      <circle class="fill" id="ringFill" cx="23" cy="23" r="19"
+        stroke-dasharray="119.4" stroke-dashoffset="83.1"></circle>
+      <text id="ringPct" x="23" y="27" text-anchor="middle">30%</text>
+    </svg>
+    <div class="prog-copy">
+      <div class="big"><em id="clearedN">7</em> of <span id="totalN">23</span> cleared today</div>
+      <div class="small" id="paceLine">On pace &mdash; usually done by 9:40am</div>
+    </div>
+  </div>
+  <div class="counts">
+    <span class="cnt ar" title="Action required"><b id="cntAR">9</b> AR</span>
+    <span class="cnt appr" title="Drafts awaiting your approval"><b id="cntAppr">3</b> Approvals</span>
+    <span class="cnt reply" title="Needs a reply"><b>4</b> Reply</span>
+    <span class="cnt" title="Important"><b>6</b> Important</span>
+  </div>
+</div>
+
+<main class="stage">
+
+  <!-- ================= TRIAGE MODE ================= -->
+  <section id="panelTriage" class="mode-panel active" aria-label="Triage">
+    <div id="heroMount"></div>
+
+    <div class="allclear" id="allClear">
+      <div class="halo">&#10003;</div>
+      <h3>Queue clear.</h3>
+      <p>Nothing needs you right now. Haven is watching &mdash; next poll in 38s.</p>
+    </div>
+
+    <div class="upnext" id="upnextWrap">
+      <div class="upnext-label">Up next <span class="cnt-rest" id="restCount"></span></div>
+      <div id="upnextMount"></div>
+      <div class="more-note" id="moreNote"></div>
+    </div>
+  </section>
+
+  <!-- ================= APPROVALS MODE ================= -->
+  <section id="panelApprovals" class="mode-panel" aria-label="Approvals">
+    <div class="dryrun">
+      <span class="dr-badge">DRY-RUN</span>
+      Sends are simulated &mdash; nothing leaves this machine.
+      <span class="dr-sub">Flip <code>APPROVALS_DRY_RUN=false</code> in .env to go live.</span>
+    </div>
+
+    <div class="appr-progress">
+      <span id="apprPos">Draft 1 of 3</span>
+      <span class="appr-dots" id="apprDots"></span>
+      <span style="margin-left:auto; color:var(--faint);">one approval = one send</span>
+    </div>
+
+    <div id="draftMount"></div>
+
+    <div class="allclear" id="apprClear">
+      <div class="halo">&#10003;</div>
+      <h3>Approval queue clear.</h3>
+      <p>All drafts reviewed. Agents will queue new drafts as items come in.</p>
+    </div>
+  </section>
+
+</main>
+
+<div class="flow-foot">
+  <div class="filters">
+    <span class="toggle on" id="tglNoise" onclick="flipToggle(this,'Hide noise')"><span class="tk"></span>Hide noise</span>
+    <span class="toggle on" id="tglHandled" onclick="flipToggle(this,'Hide handled')"><span class="tk"></span>Hide handled</span>
+    <span class="fdiv"></span>
+    <span class="wl-label">Watchlist</span>
+    <span class="chip">board deck <button title="Remove" onclick="removeChip(this)">&times;</button></span>
+    <span class="chip">nexterra <button title="Remove" onclick="removeChip(this)">&times;</button></span>
+    <span class="chip">sso migration <button title="Remove" onclick="removeChip(this)">&times;</button></span>
+    <button class="chip-add" onclick="addChip()">+ add keyword</button>
+  </div>
+  <div class="kbd-hints">
+    <kbd>E</kbd> done &nbsp; <kbd>S</kbd> snooze &nbsp; <kbd>L</kbd> Linear &nbsp; <kbd>R</kbd> draft reply
+    &nbsp;&middot;&nbsp; <kbd>A</kbd> approve &nbsp; <kbd>X</kbd> reject &nbsp;&middot;&nbsp; <kbd>Tab</kbd> switch mode
+  </div>
+</div>
+
+<!-- Person rollup drawer (stub for upcoming feature) -->
+<div class="scrim" id="scrim" onclick="closeDrawers()"></div>
+<aside class="drawer" id="drawerPerson" aria-label="Person rollup">
+  <div class="drawer-hd">
+    <h3 id="personName">Person</h3><span class="soon-tag">Preview</span>
+    <button class="icon-btn" onclick="closeDrawers()">&times;</button>
+  </div>
+  <div class="drawer-bd" id="personBody"></div>
+</aside>
+
+<aside class="drawer" id="drawerHealth" aria-label="System health">
+  <div class="drawer-hd">
+    <h3>System health</h3><span class="soon-tag">Stub &mdash; /system</span>
+    <button class="icon-btn" onclick="closeDrawers()">&times;</button>
+  </div>
+  <div class="drawer-bd">
+    <div class="sec">Sources</div>
+    <div class="health-row"><span class="dot"></span><span class="hr-name">Gmail</span><span class="hr-det">poll 40s ago &middot; 212 scanned</span></div>
+    <div class="health-row"><span class="dot"></span><span class="hr-name">Slack</span><span class="hr-det">poll 12s ago &middot; 8 channels</span></div>
+    <div class="health-row"><span class="dot"></span><span class="hr-name">Freshservice</span><span class="hr-det">poll 2m ago &middot; 3 open</span></div>
+    <div class="health-row bad"><span class="dot"></span><span class="hr-name">Otter.ai</span><span class="hr-det">auth expired 42m ago</span></div>
+    <div class="health-row" style="opacity:.5"><span class="dot" style="background:var(--faint)"></span><span class="hr-name">JIRA</span><span class="hr-det">coming soon</span></div>
+    <div class="sec">Pipeline (last hour)</div>
+    <div class="health-row"><span class="dot" style="background:var(--accent)"></span><span class="hr-name">Pre-filter</span><span class="hr-det">247 in &rarr; 31 kept</span></div>
+    <div class="health-row"><span class="dot" style="background:var(--accent)"></span><span class="hr-name">LLM scoring</span><span class="hr-det">31 scored &middot; $0.04</span></div>
+    <div class="health-row"><span class="dot" style="background:var(--accent)"></span><span class="hr-name">SSE stream</span><span class="hr-det">1 client &middot; 0 drops</span></div>
+  </div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------------- synthetic data ---------------- */
+const GLYPHS = { gmail:"&#9993;", slack:"&#128172;", freshservice:"&#127915;", otter:"&#127908;" };
+const SRC_NAMES = { gmail:"Gmail", slack:"Slack", freshservice:"Freshservice", otter:"Otter.ai" };
+
+let items = [
+  { src:"gmail", sender:"Coupa &middot; requested by", person:"Priya Raman", tag:"approval", urg:"urgent",
+    subj:"PO #4471 &mdash; Keysight LCA test set, $182,400",
+    snip:"Capex approval pending 2 days. Photonics test lab expansion, Q3 budget line ENG-CAP-07. Priya notes lead time is 14 weeks &mdash; ordering this week holds the Garfield bring-up date.",
+    why:"Watchlist hit (capex) &middot; blocking Garfield test schedule &middot; approval chain stops at you",
+    time:"9:14 AM &middot; waiting 2d" },
+  { src:"slack", sender:"DM from", person:"Dana Whitfield (CFO)", tag:"action", urg:"high",
+    subj:"Need your capex slide for Thursday&rsquo;s board deck",
+    snip:"&ldquo;Deck freezes Wed 5pm. Can you get me the IT/facilities capex slide with the Zanker lab numbers by then? Same format as Q1.&rdquo;",
+    why:"Watchlist hit (board deck) &middot; direct ask from CFO &middot; hard deadline Wed 5pm",
+    time:"8:52 AM &middot; 26m ago" },
+  { src:"gmail", sender:"DocuSign &middot; from", person:"Elena Vasquez (Legal)", tag:"approval", urg:"high",
+    subj:"MSA &mdash; Nexterra Foundry Services awaiting your signature",
+    snip:"Master services agreement, redlines resolved 7/16. Elena: &ldquo;Countersign by Friday to hold the wafer slot pricing through Q4.&rdquo;",
+    why:"Watchlist hit (nexterra) &middot; signature blocks vendor onboarding",
+    time:"8:31 AM &middot; 47m ago" },
+  { src:"freshservice", sender:"FS-2381 &middot; assigned by", person:"Tom Okafor (IT)", tag:"action", urg:"med",
+    subj:"Okta admin approval &mdash; new hire Marcus Lee starts Monday",
+    snip:"Provisioning ready except Okta super-admin grant for the deskside role. Tom needs your sign-off; everything else (laptop, badge, Slack) is staged.",
+    why:"Time-boxed &mdash; new hire lands Monday &middot; only you hold the admin role",
+    time:"Yesterday 4:40 PM" },
+  { src:"otter", sender:"Action item &middot; IT staff mtg, owner", person:"GT", tag:"action", urg:"med",
+    subj:"Send Q3 SSO vendor shortlist to Dana before budget review",
+    snip:"From Tuesday&rsquo;s IT staff meeting: you committed to sending the narrowed SSO vendor list (Okta vs. Ping vs. Entra) with rough licensing deltas before the 7/24 budget review.",
+    why:"Watchlist hit (sso migration) &middot; your own commitment, due before 7/24",
+    time:"Tue 2:00 PM mtg" },
+  { src:"gmail", sender:"United Airlines &middot;", person:"itinerary update", tag:"travel", urg:"low",
+    subj:"SFO &rarr; AUS Jul 22: departure moved to 9:05 AM",
+    snip:"Flight UA1847 retimed from 10:40 AM to 9:05 AM. Seat 4C unchanged. Connection buffer in AUS for the fab tour still fine (2h 10m).",
+    why:"Travel &mdash; affects Tue morning; calendar hold auto-adjust available",
+    time:"7:58 AM" },
+  { src:"slack", sender:"#it-ops &middot;", person:"PagerBot", tag:"fyi", urg:"low",
+    subj:"VPN concentrator failover &mdash; alert cleared, no user impact",
+    snip:"Primary concentrator recovered at 6:42 AM after 4m failover. Zero dropped tunnels. Post-incident note filed to Confluence.",
+    why:"FYI only &mdash; kept because it touched core infra during on-call hours",
+    time:"6:47 AM" },
+];
+
+let drafts = [
+  { channel:"slack", to:"Dana Whitfield (CFO) &middot; DM", agent:"reply-agent &middot; drafted 8:57 AM",
+    title:"Re: capex slide for Thursday&rsquo;s board deck",
+    body:`On it. You&rsquo;ll have the IT/facilities capex slide by Wednesday noon &mdash; ahead of the 5pm freeze [1]. It will follow the Q1 format and fold in the updated Zanker lab numbers from the July facilities review [2]. One flag: the Keysight test-set PO ($182.4k) is still in my approval queue [3]; I&rsquo;ll approve it today so the slide reflects committed, not pending, spend.`,
+    ev:[
+      { ref:"[1]", src:"Slack &middot; DM &middot; 8:52 AM", txt:"<b>Dana Whitfield:</b> &ldquo;Deck freezes Wed 5pm. Can you get me the IT/facilities capex slide&hellip; by then?&rdquo;" },
+      { ref:"[2]", src:"Gmail &middot; 7/11 &middot; facilities update", txt:"<b>Zanker buildout &mdash; July review:</b> revised lab fit-out at $1.9M, cleanroom pkg deferred to Q4." },
+      { ref:"[3]", src:"Gmail &middot; Coupa &middot; 2d ago", txt:"<b>PO #4471</b> Keysight LCA test set, $182,400 &mdash; pending your approval, requester Priya Raman." },
+    ]},
+  { channel:"gmail", to:"Priya Raman &lt;p.raman@&hellip;&gt; &middot; reply", agent:"reply-agent &middot; drafted 9:16 AM",
+    title:"Re: PO #4471 &mdash; Keysight LCA test set",
+    body:`Priya &mdash; approved in Coupa this morning [1]. Given the 14-week lead time you flagged [2], please confirm the order is placed this week and send me the vendor&rsquo;s committed ship date so we can pin the Garfield bring-up plan to it.
+
+Thanks, GT`,
+    ev:[
+      { ref:"[1]", src:"Gmail &middot; Coupa &middot; 2d ago", txt:"<b>PO #4471</b> &mdash; $182,400, budget line ENG-CAP-07, approval chain: P. Raman &rarr; GT." },
+      { ref:"[2]", src:"Gmail &middot; Priya Raman &middot; 7/16", txt:"&ldquo;Keysight quoted <b>14 weeks ARO</b> &mdash; if we order this week we hold the Garfield test window.&rdquo;" },
+    ]},
+  { channel:"slack", to:"Tom Okafor (IT) &middot; #it-internal", agent:"reply-agent &middot; drafted 9:02 AM",
+    title:"Re: FS-2381 &mdash; Okta grant for Marcus Lee onboarding",
+    body:`Tom &mdash; Okta super-admin grant for the deskside role is approved; I&rsquo;ll click it through in the admin console before EOD [1]. Everything else on FS-2381 looks staged [2]. Let&rsquo;s have Marcus&rsquo;s day-one checklist in the ticket by Friday so nothing slips over the weekend.`,
+    ev:[
+      { ref:"[1]", src:"Freshservice &middot; FS-2381", txt:"<b>Blocking step:</b> Okta super-admin grant (deskside role) &mdash; approver: GT. All other tasks complete." },
+      { ref:"[2]", src:"Freshservice &middot; FS-2381 &middot; subtasks", txt:"Laptop imaged &#10003; &middot; badge printed &#10003; &middot; Slack/Gmail provisioned &#10003; &middot; start date <b>Mon 7/21</b>." },
+    ]},
+];
+
+let cleared = 7, total = 23;
+let apprIdx = 0, apprResults = [];
+
+/* ---------------- render: triage ---------------- */
+function renderHero(animate) {
+  const m = document.getElementById("heroMount");
+  const ac = document.getElementById("allClear");
+  const un = document.getElementById("upnextWrap");
+  if (!items.length) { m.innerHTML = ""; ac.classList.add("show"); un.style.display = "none"; return; }
+  ac.classList.remove("show"); un.style.display = "";
+  const it = items[0];
+  m.innerHTML = `
+  <article class="hero ${animate ? "entering" : ""}" id="heroCard">
+    <div class="hero-top">
+      <span class="srcchip"><span class="glyph">${GLYPHS[it.src]}</span>${SRC_NAMES[it.src]}</span>
+      <span class="tag ${it.tag}">${it.tag}</span>
+      <span class="urg ${it.urg}">${it.urg}</span>
+      <span class="hero-time">${it.time}</span>
+    </div>
+    <div class="sender">${it.sender} <a onclick="openPerson('${it.person.replace(/'/g,"\\'")}')" title="Person rollup (coming soon)">${it.person}</a></div>
+    <h2>${it.subj}</h2>
+    <p class="snippet">${it.snip}</p>
+    <div class="why"><span class="k">Why now</span><span>${it.why}</span></div>
+    <div class="hero-actions">
+      <button class="act primary" onclick="doDone()">&#10003; Done <kbd>E</kbd></button>
+      <span class="snz-wrap">
+        <button class="act" onclick="toggleSnz(event)">&#128564; Snooze <kbd>S</kbd></button>
+        <span class="snz-menu" id="snzMenu">
+          <button onclick="doSnooze('1 hour')">1 hour</button>
+          <button onclick="doSnooze('tomorrow 8 AM')">Tomorrow 8 AM</button>
+        </span>
+      </span>
+      <button class="act" onclick="doLinear()">&#8599; Linear <kbd>L</kbd></button>
+      <button class="act" onclick="doReply()">&#9998; Draft reply <kbd>R</kbd></button>
+    </div>
+  </article>`;
+  renderUpnext();
+}
+
+function renderUpnext() {
+  const mount = document.getElementById("upnextMount");
+  const rest = items.slice(1);
+  document.getElementById("restCount").textContent = rest.length ? `${rest.length} more in queue` : "";
+  mount.innerHTML = rest.slice(0, 3).map(it => `
+    <div class="next-card">
+      <span class="glyph">${GLYPHS[it.src]}</span>
+      <div class="nc-main">
+        <div class="nc-subj">${it.subj}</div>
+        <div class="nc-meta">${it.sender} ${it.person} &middot; ${it.time}</div>
+      </div>
+      <span class="tag ${it.tag}">${it.tag}</span>
+    </div>`).join("");
+  const extra = rest.length - 3;
+  document.getElementById("moreNote").textContent =
+    extra > 0 ? `+ ${extra} more, quietest last — Haven orders the queue so you don't have to` : "";
+}
+
+/* ---------------- triage actions ---------------- */
+function advance(cls, toastHtml) {
+  const card = document.getElementById("heroCard");
+  if (!card) return;
+  card.classList.add(cls);
+  toast(toastHtml);
+  setTimeout(() => {
+    items.shift();
+    bumpProgress();
+    renderHero(true);
+    syncCounts();
+  }, 280);
+}
+function doDone()   { advance("leaving", `<span class="t-ok">&#10003;</span> Done — next one queued`); }
+function doSnooze(when) {
+  document.getElementById("snzMenu").classList.remove("open");
+  advance("leaving-snooze", `<span class="t-warn">&#128564;</span> Snoozed until ${when}`);
+}
+function doLinear() { advance("leaving", `<span class="t-ok">&#8599;</span> Captured to Linear as AYAR-farm ticket (mock)`); }
+function doReply()  {
+  toast(`<span class="t-ok">&#9998;</span> Agent is drafting a reply — it will appear in Approvals`);
+  const card = document.getElementById("heroCard");
+  card && card.animate([{transform:"scale(1)"},{transform:"scale(.99)"},{transform:"scale(1)"}],{duration:220});
+}
+function toggleSnz(e) {
+  e.stopPropagation();
+  document.getElementById("snzMenu").classList.toggle("open");
+}
+document.addEventListener("click", () => {
+  const m = document.getElementById("snzMenu");
+  m && m.classList.remove("open");
+});
+
+function bumpProgress() {
+  cleared = Math.min(cleared + 1, total);
+  document.getElementById("clearedN").textContent = cleared;
+  const pct = Math.round(cleared / total * 100);
+  document.getElementById("ringPct").textContent = pct + "%";
+  document.getElementById("ringFill").style.strokeDashoffset = (119.4 * (1 - cleared / total)).toFixed(1);
+  if (pct >= 60) document.getElementById("paceLine").textContent = "Ahead of pace — nice.";
+}
+function syncCounts() {
+  document.getElementById("triageBadge").textContent = items.length + drafts.length - apprIdx + 6; /* incl. hidden noise/handled */
+  document.getElementById("cntAR").textContent = Math.max(items.filter(i => i.tag !== "fyi" && i.tag !== "travel").length + 4, 0);
+}
+
+/* ---------------- render: approvals ---------------- */
+function renderDraft(animate) {
+  const m = document.getElementById("draftMount");
+  const done = apprIdx >= drafts.length;
+  document.getElementById("apprClear").classList.toggle("show", done);
+  document.getElementById("apprPos").textContent = done ? "All reviewed" : `Draft ${apprIdx + 1} of ${drafts.length}`;
+  document.getElementById("apprDots").innerHTML = drafts.map((_, i) =>
+    `<i class="${apprResults[i] === "ok" ? "done-ok" : apprResults[i] === "no" ? "done-no" : i === apprIdx ? "cur" : ""}"></i>`).join("");
+  document.getElementById("apprBadge").textContent = drafts.length - apprIdx;
+  document.getElementById("cntAppr").textContent = drafts.length - apprIdx;
+  if (done) { m.innerHTML = ""; return; }
+  const d = drafts[apprIdx];
+  const bodyHtml = d.body.replace(/\[(\d)\]/g, `<span class="cite" onclick="flashEv(this,$1)">[$1]</span>`);
+  m.innerHTML = `
+  <article class="draft-card ${animate ? "entering" : ""}" id="draftCard">
+    <div class="draft-head">
+      <div class="dh-row">
+        <span class="srcchip"><span class="glyph">${GLYPHS[d.channel]}</span>${SRC_NAMES[d.channel]} ${d.channel === "slack" ? "message" : "reply"}</span>
+        <span class="agent-chip">&#10024; ${d.agent}</span>
+      </div>
+      <h3>${d.title}</h3>
+      <div class="to">To: <b>${d.to}</b></div>
+    </div>
+    <div class="draft-body">
+      <div class="draft-text" id="draftText">${bodyHtml}</div>
+      <div class="edit-row">
+        <button class="edit-btn" id="editBtn" onclick="toggleEdit()">&#9998; Edit draft</button>
+      </div>
+    </div>
+    <div class="evidence">
+      <h4>Evidence &mdash; ${d.ev.length} cited source item${d.ev.length > 1 ? "s" : ""}</h4>
+      ${d.ev.map((e, i) => `
+        <div class="ev-item" id="ev${i + 1}">
+          <span class="ev-ref">${e.ref}</span>
+          <div><div class="ev-txt">${e.txt}</div><div class="ev-src">${e.src}</div></div>
+        </div>`).join("")}
+    </div>
+    <div class="appr-actions">
+      <button class="appr-btn approve" onclick="doApprove()">&#10003; Approve &amp; send <kbd>A</kbd></button>
+      <button class="appr-btn reject" onclick="doReject()">&times; Reject <kbd>X</kbd></button>
+      <div class="appr-note">Approve sends exactly this text, once.<br>Reject discards; the source item returns to Triage.</div>
+    </div>
+  </article>`;
+}
+
+function flashEv(el, n) {
+  const ev = document.getElementById("ev" + n);
+  if (!ev) return;
+  ev.classList.remove("flash"); void ev.offsetWidth; ev.classList.add("flash");
+  ev.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+let editing = false;
+function toggleEdit() {
+  const t = document.getElementById("draftText"), b = document.getElementById("editBtn");
+  editing = !editing;
+  t.contentEditable = editing;
+  if (editing) { b.innerHTML = "&#10003; Save edits"; b.classList.add("saving"); t.focus(); }
+  else { b.innerHTML = "&#9998; Edit draft"; b.classList.remove("saving");
+    toast(`<span class="t-ok">&#10003;</span> Draft updated — your edits will be what's sent`); }
+}
+function finishDraft(result, cls, msg) {
+  const card = document.getElementById("draftCard");
+  if (!card) return;
+  if (editing) toggleEdit();
+  apprResults[apprIdx] = result;
+  card.classList.add(cls);
+  toast(msg);
+  setTimeout(() => { apprIdx++; bumpProgress(); renderDraft(true); syncCounts(); }, 280);
+}
+function doApprove() { finishDraft("ok", "leaving-ok",
+  `<span class="t-warn">DRY-RUN</span> Approved — send simulated, logged to data/outbox.log`); }
+function doReject() { finishDraft("no", "leaving-no",
+  `<span class="t-err">&times;</span> Rejected — source item returned to Triage`); }
+
+/* ---------------- mode switch ---------------- */
+let mode = "triage";
+function setMode(m) {
+  mode = m;
+  document.getElementById("modeTriage").classList.toggle("active", m === "triage");
+  document.getElementById("modeApprovals").classList.toggle("active", m === "approvals");
+  document.getElementById("panelTriage").classList.toggle("active", m === "triage");
+  document.getElementById("panelApprovals").classList.toggle("active", m === "approvals");
+}
+
+/* ---------------- drawers ---------------- */
+function openPerson(name) {
+  document.getElementById("personName").textContent = name.replace(/&amp;/g, "&");
+  document.getElementById("personBody").innerHTML = `
+    <div class="sec">Open items owned by them</div>
+    <div class="mini-row"><span class="mr-src">FS</span><span class="mr-txt">2 open Freshservice tickets (1 waiting on vendor)</span></div>
+    <div class="mini-row"><span class="mr-src">JIRA</span><span class="mr-txt">4 in-progress issues &middot; 1 overdue (stub &mdash; JIRA source coming soon)</span></div>
+    <div class="mini-row"><span class="mr-src">OTTER</span><span class="mr-txt">1 open action item from last week&rsquo;s staff meeting</span></div>
+    <div class="sec">Their open requests to you</div>
+    <div class="mini-row"><span class="mr-src">NOW</span><span class="mr-txt">The item currently on your triage stage</span></div>
+    <div class="sec" style="color:var(--warn)">Person rollup ships with the JIRA source &mdash; this is a preview of the shape.</div>`;
+  document.getElementById("drawerPerson").classList.add("open");
+  document.getElementById("scrim").classList.add("show");
+}
+function openDrawer(which) {
+  document.getElementById(which === "health" ? "drawerHealth" : "drawerPerson").classList.add("open");
+  document.getElementById("scrim").classList.add("show");
+}
+function closeDrawers() {
+  document.querySelectorAll(".drawer").forEach(d => d.classList.remove("open"));
+  document.getElementById("scrim").classList.remove("show");
+}
+
+/* ---------------- filters ---------------- */
+function flipToggle(el, label) {
+  el.classList.toggle("on");
+  toast(el.classList.contains("on") ? `${label}: on` : `${label}: off — showing everything`);
+}
+function removeChip(btn) { const c = btn.closest(".chip"); c.style.opacity = 0; setTimeout(() => c.remove(), 180); }
+function addChip() {
+  const kw = prompt("Watchlist keyword:");
+  if (!kw) return;
+  const chip = document.createElement("span");
+  chip.className = "chip";
+  chip.innerHTML = `${kw.replace(/</g, "&lt;")} <button title="Remove" onclick="removeChip(this)">&times;</button>`;
+  document.querySelector(".chip-add").before(chip);
+}
+
+/* ---------------- toast + keys ---------------- */
+let toastT;
+function toast(html) {
+  const t = document.getElementById("toast");
+  t.innerHTML = html;
+  t.classList.add("show");
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove("show"), 2400);
+}
+document.addEventListener("keydown", e => {
+  if (e.target.isContentEditable || /input|textarea/i.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k === "tab") { e.preventDefault(); setMode(mode === "triage" ? "approvals" : "triage"); return; }
+  if (mode === "triage" && items.length) {
+    if (k === "e") doDone();
+    else if (k === "s") doSnooze("1 hour");
+    else if (k === "l") doLinear();
+    else if (k === "r") doReply();
+  } else if (mode === "approvals" && apprIdx < drafts.length) {
+    if (k === "a") doApprove();
+    else if (k === "x") doReject();
+  }
+});
+
+/* ---------------- init ---------------- */
+renderHero(false);
+renderDraft(false);
+syncCounts();
+</script>
+</body>
+</html>

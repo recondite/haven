@@ -25,7 +25,22 @@ from sse_starlette.sse import EventSourceResponse
 from haven import config
 from haven.deps import gmail_auth
 from haven.events import bus
-from haven.routers import contacts, freshservice, gmail, items, otter, slack, wiki
+from haven.routers import (
+    contacts,
+    dispatch,
+    docs,
+    evals,
+    freshservice,
+    gmail,
+    identity,
+    items,
+    knowledge,
+    otter,
+    slack,
+    spine,
+    system,
+    wiki,
+)
 
 STATIC_DIR = Path(__file__).parent / "web" / "static"
 
@@ -82,6 +97,10 @@ async def _scheduled_poll_loop(name: str, poll_fn, poll_seconds: int) -> None:
                 continue
             log.info("Scheduled [%s]: firing poll", name)
             await poll_fn()
+            # Record last successful poll for the /system routine-staleness view.
+            # cursors store (not runtime_config) so it doesn't spam the audit log.
+            from haven.db import cursor_store
+            cursor_store.set_cursor(name, "last_poll", datetime.now().isoformat(timespec="seconds"))
         except asyncio.CancelledError:
             log.info("Scheduled poller [%s] cancelled", name)
             raise
@@ -92,9 +111,12 @@ async def _scheduled_poll_loop(name: str, poll_fn, poll_seconds: int) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from haven import store, wiki as wiki_mod
+    from haven import executor, store, wiki as wiki_mod
     store.ensure_dirs()
     wiki_mod.ensure_wiki()
+    # M0.3: live send on an unsafe posture (non-localhost + no auth) is forced
+    # dry before anything can fire. Audited; surfaced on /system and the UI.
+    executor.enforce_boot_tripwire()
     heartbeat = asyncio.create_task(_heartbeat_loop())
 
     # Spawn one background poller per source. Reads `poll_seconds` from each
@@ -114,6 +136,39 @@ async def lifespan(app: FastAPI):
             continue
         schedulers.append(asyncio.create_task(_scheduled_poll_loop(name, poll_fn, secs)))
 
+    # Weekly roster-drift check (plan v4 Phase 3): refresh roster + ids, report
+    # drift. Proposes only — writes nothing. Right-sized, not a live engine.
+    async def _weekly_drift() -> None:
+        from haven import identity
+        await asyncio.sleep(120)  # let startup polls settle
+        while True:
+            try:
+                await identity.scheduled_drift()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("weekly drift error: %s", e)
+            await asyncio.sleep(7 * 24 * 3600)
+    schedulers.append(asyncio.create_task(_weekly_drift()))
+
+    # Nightly snapshot of the SQLite stores (M0.2). Runs once at startup (so a
+    # backup exists from day one), then daily; idempotent per calendar day.
+    async def _nightly_backup() -> None:
+        from haven import backup as backup_mod
+        await asyncio.sleep(60)
+        while True:
+            try:
+                results = backup_mod.backup_now()
+                created = [r["file"] for r in results if r.get("status") == "created"]
+                if created:
+                    log.info("Backup created: %s", ", ".join(created))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("nightly backup error: %s", e)
+            await asyncio.sleep(24 * 3600)
+    schedulers.append(asyncio.create_task(_nightly_backup()))
+
     try:
         yield
     finally:
@@ -123,6 +178,41 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Haven", version="0.1.0", lifespan=lifespan)
+
+
+# ─── Auth ────────────────────────────────────────────────
+# Bearer/Basic token on every endpoint. Basic makes the browser show a native
+# login prompt and cache the creds (sent on fetch + EventSource same-origin, no
+# login page needed). Bearer is for API/CLI clients. Disabled if no token set.
+def _authorized(request) -> bool:
+    import base64
+    import hmac
+
+    token = config.HAVEN_AUTH_TOKEN
+    header = request.headers.get("authorization", "")
+    scheme, _, cred = header.partition(" ")
+    scheme = scheme.lower()
+    if scheme == "bearer":
+        return hmac.compare_digest(cred, token)
+    if scheme == "basic":
+        try:
+            _, _, pw = base64.b64decode(cred).decode("utf-8", "replace").partition(":")
+        except Exception:
+            return False
+        return hmac.compare_digest(pw, token)
+    return False
+
+
+@app.middleware("http")
+async def require_auth(request, call_next):
+    # Read the token live so tests/.env reloads take effect without reimport.
+    if not config.HAVEN_AUTH_TOKEN or _authorized(request):
+        return await call_next(request)
+    return Response(
+        content="Unauthorized",
+        status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="Haven"'},
+    )
 
 
 async def _heartbeat_loop() -> None:
@@ -164,6 +254,19 @@ async def health() -> dict:
 async def llm_status() -> dict:
     from haven import llm
     node_pair = llm.node_entry_path()
+    is_local = config.LLM_MODE == "local"
+    # "available" reflects the ACTIVE runtime: CLI resolvable for cli mode, or
+    # the local endpoint actually answering /models for local mode.
+    if is_local:
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as c:
+                r = await c.get(config.LOCAL_LLM_BASE_URL.rstrip("/") + "/models")
+            available = r.status_code == 200
+        except Exception:
+            available = False
+    else:
+        available = llm.cli_available()
     return {
         "cli_available": llm.cli_available(),
         "cli_path": llm.cli_path(),
@@ -172,26 +275,30 @@ async def llm_status() -> dict:
             "cli_js": node_pair[1] if node_pair else None,
             "preferred": node_pair is not None,
         },
-        "model": config.LLM_MODEL,
+        "available": available,
+        "model": config.LOCAL_LLM_MODEL if is_local else config.LLM_MODEL,
+        "runtime": config.LLM_MODE,
+        "local_base_url": config.LOCAL_LLM_BASE_URL if is_local else None,
     }
 
 
 @app.get("/api/llm/test")
 @app.post("/api/llm/test")
 async def llm_test() -> dict:
-    """End-to-end test: spawn `claude --print` with a minimal prompt, verify it round-trips.
+    """End-to-end test of the ACTIVE runtime (claude CLI or local endpoint):
+    send a minimal prompt, verify it round-trips.
 
     Allows GET so it can be hit directly from the browser address bar.
     """
-    from haven import llm
+    from haven import runtime
     try:
-        raw = await llm.claude_call(
+        raw = await runtime.call(
             'Reply with exactly this JSON and nothing else: {"hello": "world"}',
-            timeout=30.0,
+            timeout=60.0,
         )
-        return {"ok": True, "response": raw[:1000]}
+        return {"ok": True, "runtime": config.LLM_MODE, "response": raw[:1000]}
     except Exception as e:
-        return {"ok": False, "error": str(e), "trace": traceback.format_exc()}
+        return {"ok": False, "runtime": config.LLM_MODE, "error": str(e), "trace": traceback.format_exc()}
 
 
 @app.get("/api/sse/stream")
@@ -220,6 +327,13 @@ app.include_router(otter.router)
 app.include_router(wiki.router)
 app.include_router(contacts.router)
 app.include_router(items.router)
+app.include_router(spine.router)
+app.include_router(dispatch.router)
+app.include_router(identity.router)
+app.include_router(evals.router)
+app.include_router(knowledge.router)
+app.include_router(docs.router)
+app.include_router(system.router)
 
 
 # ─── Static UI (mounted last so /api/* and /oauth/* take precedence) ───

@@ -12,7 +12,6 @@ inside `asyncio.to_thread` because `asyncio.create_subprocess_exec` does not han
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -260,42 +259,3 @@ async def claude_call(
         model or config.LLM_MODEL,
         timeout,
     )
-
-
-async def claude_json(
-    prompt: str,
-    model: str | None = None,
-    timeout: float = 60.0,
-) -> dict:
-    """Call `claude` and parse the response as JSON. Strips markdown fences.
-
-    Retries once on empty / unparseable output — the CLI occasionally exits 0
-    with an empty stdout (transient rate-limit or network blip), and a single
-    retry usually fixes it. Failed responses are logged so we can diagnose.
-    """
-    last_error: Exception | None = None
-    last_raw: str = ""
-    for attempt in (1, 2):
-        raw = await claude_call(prompt, model, timeout)
-        last_raw = raw
-        cleaned = _extract_json(raw)
-        if not cleaned.strip():
-            last_error = ValueError("claude returned empty output")
-            log.warning("claude_json attempt %d: empty output (model=%s)", attempt, model or config.LLM_MODEL)
-            if attempt == 1:
-                await asyncio.sleep(0.5)
-                continue
-            break
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            last_error = e
-            log.warning(
-                "claude_json attempt %d: JSON parse failed (%s) — raw[:200]=%r",
-                attempt, e, raw[:200],
-            )
-            if attempt == 1:
-                await asyncio.sleep(0.5)
-                continue
-            break
-    raise RuntimeError(f"claude_json failed after 2 attempts: {last_error}; raw[:200]={last_raw[:200]!r}")

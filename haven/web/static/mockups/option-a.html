@@ -1,0 +1,659 @@
+<!-- OPTION A: The Operator Terminal
+     - Maximum density: tabular rows, not cards. 20+ items on screen without scrolling. Every pixel carries data.
+     - Keyboard-first: j/k cursor, single-key verbs (e/s/c/d, a/r in approvals), 1-4 view switching. Mouse optional. Persistent keymap bar.
+     - Zero decoration: monospace, hairline rules, color used only as signal (urgency, source health, dry-run state). Bloomberg / mission-control, not SaaS.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HAVEN // OPERATOR TERMINAL</title>
+<style>
+  :root{
+    --bg:#0a0e14;
+    --bg-panel:#0d1117;
+    --bg-row:#0f141c;
+    --bg-row-alt:#0d1219;
+    --bg-sel:#162032;
+    --line:#1c2430;
+    --line-hard:#2a3444;
+    --fg:#c9d4e3;
+    --fg-dim:#6b7688;
+    --fg-faint:#454f60;
+    --accent:#5e6ad2;
+    --accent-bright:#8b95f0;
+    --amber:#e8a33d;
+    --red:#e5534b;
+    --green:#3fb950;
+    --cyan:#39c5cf;
+    --purple:#b083f0;
+    --mono:"SF Mono","Cascadia Mono","Consolas","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:var(--bg);color:var(--fg);
+    font-family:var(--mono);font-size:12px;line-height:1.45;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  ::selection{background:var(--accent);color:#fff}
+
+  /* ============ TOP STATUS BAR ============ */
+  #statusbar{
+    display:flex;align-items:center;gap:0;
+    background:var(--bg-panel);border-bottom:1px solid var(--line-hard);
+    height:30px;flex:none;user-select:none;white-space:nowrap;overflow:hidden;
+  }
+  #statusbar .cell{padding:0 10px;height:100%;display:flex;align-items:center;gap:6px;border-right:1px solid var(--line)}
+  .brand{color:var(--accent-bright);font-weight:700;letter-spacing:2px}
+  .brand .v{color:var(--fg-faint);font-weight:400;letter-spacing:0}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+  .dot.g{background:var(--green);box-shadow:0 0 5px var(--green)}
+  .dot.r{background:var(--red);box-shadow:0 0 5px var(--red)}
+  .dot.dim{background:var(--fg-faint);box-shadow:none}
+  .src-pill{color:var(--fg-dim);letter-spacing:.5px}
+  .src-pill b{color:var(--fg);font-weight:600}
+  #sse-dot{animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .count b{font-weight:700}
+  .count .k{color:var(--fg-dim)}
+  .c-ar b{color:var(--amber)} .c-ap b{color:var(--purple)} .c-re b{color:var(--cyan)} .c-im b{color:var(--red)}
+  .spacer{flex:1}
+  .quiet{color:var(--fg-dim)} .quiet b{color:var(--fg)}
+  #clock{color:var(--fg-dim);border-right:none}
+
+  /* ============ DRY RUN BANNER ============ */
+  #dryrun{
+    flex:none;background:repeating-linear-gradient(-45deg,#2a2008,#2a2008 12px,#241c07 12px,#241c07 24px);
+    border-bottom:1px solid #5c4a14;color:var(--amber);
+    padding:3px 12px;font-size:11px;letter-spacing:1px;text-align:center;
+  }
+  #dryrun b{color:#ffd479}
+
+  /* ============ TAB / FILTER ROW ============ */
+  #tabrow{
+    display:flex;align-items:center;background:var(--bg-panel);
+    border-bottom:1px solid var(--line-hard);height:28px;flex:none;user-select:none;
+  }
+  .tab{
+    padding:0 14px;height:100%;display:flex;align-items:center;gap:7px;
+    color:var(--fg-dim);cursor:pointer;border-right:1px solid var(--line);
+    letter-spacing:1px;
+  }
+  .tab .key{color:var(--fg-faint);border:1px solid var(--line-hard);border-radius:2px;padding:0 4px;font-size:10px;line-height:14px}
+  .tab.active{background:var(--bg);color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
+  .tab.active .key{color:var(--accent-bright);border-color:var(--accent)}
+  .tab .badge{background:var(--purple);color:#0a0e14;border-radius:2px;padding:0 5px;font-weight:700;font-size:10px}
+  #filters{margin-left:auto;display:flex;align-items:center;gap:8px;padding-right:10px;font-size:11px;min-width:0;overflow:hidden;white-space:nowrap}
+  #wl-chips{display:inline-flex;gap:4px;overflow:hidden;white-space:nowrap}
+  .toggle{white-space:nowrap}
+  .toggle{color:var(--fg-dim);cursor:pointer;display:flex;align-items:center;gap:4px}
+  .toggle .box{width:11px;height:11px;border:1px solid var(--line-hard);display:inline-block;text-align:center;line-height:10px;font-size:9px;color:var(--green)}
+  .toggle.on .box{border-color:var(--green)}
+  .wl-chip{background:#101826;border:1px solid var(--line-hard);border-radius:2px;padding:0 5px;color:var(--cyan);cursor:pointer}
+  .wl-chip .x{color:var(--fg-faint);margin-left:3px}
+  .wl-chip:hover .x{color:var(--red)}
+  #wl-add{background:none;border:1px dashed var(--line-hard);border-radius:2px;color:var(--fg-faint);padding:0 6px;font-family:var(--mono);font-size:11px;cursor:pointer}
+  #wl-add:hover{color:var(--cyan);border-color:var(--cyan)}
+
+  /* ============ MAIN ============ */
+  #main{flex:1;display:flex;min-height:0}
+  .view{display:none;flex:1;min-width:0}
+  .view.active{display:flex}
+
+  /* --- triage table --- */
+  #list-wrap{flex:1.7;min-width:0;overflow-y:auto;border-right:1px solid var(--line-hard)}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  thead th{
+    position:sticky;top:0;background:var(--bg-panel);color:var(--fg-faint);
+    text-align:left;font-weight:600;font-size:10px;letter-spacing:1px;
+    padding:3px 6px;border-bottom:1px solid var(--line-hard);z-index:2;
+  }
+  tbody td{padding:2px 6px;border-bottom:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
+  tbody tr{background:var(--bg-row)}
+  tbody tr:nth-child(even){background:var(--bg-row-alt)}
+  tbody tr.sel{background:var(--bg-sel);box-shadow:inset 2px 0 0 var(--accent)}
+  tbody tr.done td{color:var(--fg-faint);text-decoration:line-through}
+  tbody tr.snoozed td{color:var(--fg-faint);font-style:italic;text-decoration:none}
+  .col-cur{width:14px} .col-urg{width:38px} .col-src{width:52px} .col-age{width:44px}
+  .col-from{width:150px} .col-tag{width:64px} .col-st{width:74px}
+  .cur{color:var(--accent-bright);font-weight:700}
+  .urg{font-weight:700;letter-spacing:.5px}
+  .urg.urgent{color:var(--red)} .urg.high{color:var(--amber)} .urg.med{color:var(--cyan)} .urg.low{color:var(--fg-faint)}
+  .src{letter-spacing:.5px}
+  .src.gmail{color:#e8a33d}.src.slack{color:#b083f0}.src.fresh{color:#39c5cf}.src.otter{color:#3fb950}.src.jira{color:#5e6ad2}
+  .age{color:var(--fg-dim)}
+  .from{color:var(--fg)}
+  .subj .snip{color:var(--fg-dim)}
+  .subj .wl{color:var(--cyan);background:#0e2a2e;border-radius:1px}
+  .tag{font-size:10px;letter-spacing:.5px;padding:0 4px;border-radius:2px;border:1px solid}
+  .tag.approval{color:var(--purple);border-color:#3a2c55}
+  .tag.action{color:var(--amber);border-color:#4a3812}
+  .tag.fyi{color:var(--fg-dim);border-color:var(--line-hard)}
+  .tag.travel{color:var(--cyan);border-color:#123c40}
+  .tag.noise{color:var(--fg-faint);border-color:var(--line)}
+  .st{font-size:10px;color:var(--fg-faint)}
+  .st.new{color:var(--green)} .st.draft{color:var(--cyan)} .st.snoozed{color:var(--amber)} .st.done{color:var(--fg-faint)}
+
+  /* --- inspector --- */
+  #inspector{flex:1;min-width:280px;max-width:420px;background:var(--bg-panel);overflow-y:auto;display:flex;flex-direction:column}
+  .insp-h{padding:6px 10px;border-bottom:1px solid var(--line-hard);color:var(--fg-faint);font-size:10px;letter-spacing:1.5px}
+  .insp-body{padding:10px;flex:1}
+  .kv{display:grid;grid-template-columns:64px 1fr;gap:2px 8px;margin-bottom:10px}
+  .kv .k{color:var(--fg-faint)} .kv .v{color:var(--fg);overflow:hidden;text-overflow:ellipsis}
+  .insp-snip{border-left:2px solid var(--line-hard);padding:6px 8px;color:var(--fg-dim);margin-bottom:12px;white-space:pre-wrap}
+  .insp-actions{display:flex;flex-wrap:wrap;gap:6px}
+  .act{
+    background:#101826;border:1px solid var(--line-hard);border-radius:2px;color:var(--fg);
+    padding:3px 8px;font-family:var(--mono);font-size:11px;cursor:pointer;display:flex;gap:6px;align-items:center;
+  }
+  .act:hover{border-color:var(--accent);color:var(--accent-bright)}
+  .act .k{color:var(--fg-faint);border:1px solid var(--line-hard);border-radius:2px;padding:0 3px;font-size:9px}
+  .insp-empty{color:var(--fg-faint);padding:20px 10px;text-align:center}
+
+  /* ============ APPROVALS VIEW ============ */
+  #v-approvals{flex-direction:row}
+  #aq-list{width:340px;flex:none;border-right:1px solid var(--line-hard);overflow-y:auto}
+  .aq-item{padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer}
+  .aq-item.sel{background:var(--bg-sel);box-shadow:inset 2px 0 0 var(--purple)}
+  .aq-item .l1{display:flex;gap:8px;align-items:baseline}
+  .aq-item .who{color:var(--fg);font-weight:600}
+  .aq-item .via{font-size:10px}
+  .aq-item .prev{color:var(--fg-dim);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+  .aq-item .meta{color:var(--fg-faint);font-size:10px;margin-top:2px}
+  #aq-detail{flex:1;min-width:0;overflow-y:auto;display:flex;flex-direction:column;background:var(--bg-panel)}
+  .aq-head{padding:8px 14px;border-bottom:1px solid var(--line-hard);display:flex;align-items:center;gap:12px}
+  .aq-head .to{color:var(--fg);font-weight:700}
+  .aq-head .chan{color:var(--fg-dim)}
+  .draft-box{margin:12px 14px;border:1px solid var(--line-hard);background:var(--bg);border-radius:2px}
+  .draft-box .db-h{padding:4px 10px;border-bottom:1px solid var(--line);color:var(--fg-faint);font-size:10px;letter-spacing:1.5px;display:flex;justify-content:space-between}
+  .draft-box .db-h .agent{color:var(--purple)}
+  .draft-body{padding:10px 12px;white-space:pre-wrap;color:var(--fg);font-size:12px;line-height:1.6}
+  .cite{color:var(--cyan);cursor:pointer;text-decoration:none;border-bottom:1px dotted var(--cyan);font-size:10px;vertical-align:super}
+  .ev-h{padding:0 14px;color:var(--fg-faint);font-size:10px;letter-spacing:1.5px;margin-top:4px}
+  .ev{margin:6px 14px;border-left:2px solid var(--cyan);background:var(--bg);padding:6px 10px}
+  .ev .ev-src{color:var(--cyan);font-size:10px;letter-spacing:.5px}
+  .ev .ev-txt{color:var(--fg-dim);font-size:11px;margin-top:2px}
+  .aq-actions{padding:12px 14px;border-top:1px solid var(--line-hard);display:flex;gap:10px;align-items:center;margin-top:auto}
+  .btn-approve{background:#12321b;border:1px solid var(--green);color:var(--green);padding:5px 16px;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;border-radius:2px;white-space:nowrap}
+  .btn-approve:hover{background:var(--green);color:#0a0e14}
+  .btn-reject{background:#331414;border:1px solid var(--red);color:var(--red);padding:5px 16px;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer;border-radius:2px;white-space:nowrap}
+  .btn-reject:hover{background:var(--red);color:#0a0e14}
+  .aq-note{color:var(--fg-faint);font-size:10px}
+  .one-send{color:var(--amber);font-size:10px;letter-spacing:.5px}
+  .aq-empty{color:var(--fg-faint);text-align:center;padding:60px 20px}
+  .aq-empty b{color:var(--green)}
+
+  /* ============ PEOPLE / SYSTEM stubs ============ */
+  .stub-wrap{flex:1;overflow-y:auto;padding:14px}
+  .stub-h{color:var(--fg-faint);font-size:10px;letter-spacing:1.5px;margin-bottom:8px}
+  .person-row{display:flex;gap:14px;align-items:center;padding:5px 8px;border:1px solid var(--line);background:var(--bg-row);margin-bottom:4px;cursor:pointer}
+  .person-row:hover{border-color:var(--accent)}
+  .person-row .nm{width:170px;color:var(--fg);font-weight:600}
+  .person-row .role{width:190px;color:var(--fg-dim);font-size:11px}
+  .person-row .cnt{color:var(--fg-dim);font-size:11px}
+  .person-row .cnt b{color:var(--amber)}
+  .soon{display:inline-block;border:1px dashed var(--line-hard);color:var(--fg-faint);font-size:9px;letter-spacing:1px;padding:0 5px;border-radius:2px;margin-left:8px}
+  .sys-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+  .sys-card{border:1px solid var(--line);background:var(--bg-row);padding:8px 10px}
+  .sys-card .sc-h{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+  .sys-card .sc-h b{letter-spacing:1px}
+  .sys-card .sc-kv{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-size:11px}
+  .sys-card .sc-kv .k{color:var(--fg-faint)} .sys-card .sc-kv .v{color:var(--fg-dim);text-align:right}
+  .sys-card.err{border-color:#4a1f1c}
+  .sys-card.err .v.bad{color:var(--red)}
+
+  /* ============ KEYMAP BAR ============ */
+  #keymap{
+    flex:none;height:26px;background:var(--bg-panel);border-top:1px solid var(--line-hard);
+    display:flex;align-items:center;gap:0;padding:0 8px;overflow:hidden;white-space:nowrap;user-select:none;
+  }
+  #keymap .km{display:flex;align-items:center;gap:5px;padding:0 9px;border-right:1px solid var(--line);height:16px}
+  #keymap kbd{
+    background:#131b28;border:1px solid var(--line-hard);border-bottom-color:#333f52;border-radius:3px;
+    padding:0 5px;font-family:var(--mono);font-size:10px;color:var(--accent-bright);line-height:14px;
+  }
+  #keymap .lbl{color:var(--fg-dim);font-size:10px;letter-spacing:.5px}
+  #km-msg{margin-left:auto;color:var(--green);font-size:10px;letter-spacing:.5px;padding-right:4px}
+
+  /* toast */
+  #toast{
+    position:fixed;bottom:38px;right:14px;background:var(--bg-panel);border:1px solid var(--accent);
+    color:var(--fg);padding:6px 12px;font-size:11px;border-radius:2px;opacity:0;transition:opacity .15s;pointer-events:none;z-index:9;
+  }
+  #toast.show{opacity:1}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:var(--line-hard);border-radius:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+
+<!-- ===== STATUS BAR ===== -->
+<div id="statusbar">
+  <div class="cell brand">HAVEN <span class="v">v0.4</span></div>
+  <div class="cell src-pill"><span class="dot g"></span>GMAIL <b>142ms</b></div>
+  <div class="cell src-pill"><span class="dot g"></span>SLACK <b>89ms</b></div>
+  <div class="cell src-pill"><span class="dot r"></span>FRESH <b>ERR&nbsp;503</b></div>
+  <div class="cell src-pill"><span class="dot g"></span>OTTER <b>211ms</b></div>
+  <div class="cell src-pill" title="coming soon"><span class="dot dim"></span>JIRA <b style="color:var(--fg-faint)">SOON</b></div>
+  <div class="cell count c-ar"><span class="k">AR</span><b id="c-ar">11</b></div>
+  <div class="cell count c-ap"><span class="k">APPRV</span><b id="c-ap">3</b></div>
+  <div class="cell count c-re"><span class="k">REPLY</span><b id="c-re">4</b></div>
+  <div class="cell count c-im"><span class="k">IMP</span><b id="c-im">5</b></div>
+  <div class="spacer"></div>
+  <div class="cell src-pill"><span class="dot g" id="sse-dot"></span>SSE LIVE <b id="sse-n">last evt 4s</b></div>
+  <div class="cell quiet">QUIET <b>22:00–06:30</b> <span style="color:var(--fg-faint)">off</span></div>
+  <div class="cell" id="clock">07:41:22 PDT</div>
+</div>
+
+<!-- ===== DRY RUN ===== -->
+<div id="dryrun">⚠ <b>DRY-RUN MODE</b> — approvals are simulated. No message leaves this machine. Set HAVEN_SEND=live to arm. ⚠</div>
+
+<!-- ===== TABS + FILTERS ===== -->
+<div id="tabrow">
+  <div class="tab active" data-view="triage"><span class="key">1</span>TRIAGE <span style="color:var(--fg-faint)" id="tab-n">18</span></div>
+  <div class="tab" data-view="approvals"><span class="key">2</span>APPROVALS <span class="badge" id="aq-badge">3</span></div>
+  <div class="tab" data-view="people"><span class="key">3</span>PEOPLE <span class="soon">SOON</span></div>
+  <div class="tab" data-view="system"><span class="key">4</span>SYSTEM</div>
+  <div id="filters">
+    <span class="toggle on" id="tg-noise"><span class="box">x</span>hide noise <span style="color:var(--fg-faint)">(n)</span></span>
+    <span class="toggle" id="tg-handled"><span class="box"></span>hide handled <span style="color:var(--fg-faint)">(h)</span></span>
+    <span style="color:var(--fg-faint)">|</span>
+    <span style="color:var(--fg-faint)">WATCH:</span>
+    <span id="wl-chips"></span>
+    <button id="wl-add">+ add</button>
+  </div>
+</div>
+
+<!-- ===== MAIN ===== -->
+<div id="main">
+
+  <!-- TRIAGE -->
+  <div class="view active" id="v-triage">
+    <div id="list-wrap">
+      <table>
+        <thead><tr>
+          <th class="col-cur"></th><th class="col-urg">URG</th><th class="col-src">SRC</th>
+          <th class="col-age">AGE</th><th class="col-from">FROM</th><th>SUBJECT / SNIPPET</th>
+          <th class="col-tag">TAG</th><th class="col-st">STATE</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div id="inspector">
+      <div class="insp-h">INSPECTOR</div>
+      <div class="insp-body" id="insp-body"></div>
+    </div>
+  </div>
+
+  <!-- APPROVALS -->
+  <div class="view" id="v-approvals">
+    <div id="aq-list"></div>
+    <div id="aq-detail"></div>
+  </div>
+
+  <!-- PEOPLE (stub) -->
+  <div class="view" id="v-people">
+    <div class="stub-wrap">
+      <div class="stub-h">PERSON ROLLUP — open ARs per team member (JIRA / FRESH / OTTER) + requests to GT <span class="soon">PREVIEW — SHIPPING WITH JIRA SOURCE</span></div>
+      <div class="person-row"><span class="nm">Priya Raghunathan</span><span class="role">Dir, IT Infrastructure</span><span class="cnt">FRESH <b>4</b> · OTTER <b>2</b> · to-GT <b>1</b></span></div>
+      <div class="person-row"><span class="nm">Marcus Delgado</span><span class="role">Mgr, Business Systems</span><span class="cnt">JIRA <b>—</b> · OTTER <b>3</b> · to-GT <b>2</b></span></div>
+      <div class="person-row"><span class="nm">Elena Volkova</span><span class="role">Sr. Security Engineer</span><span class="cnt">FRESH <b>2</b> · OTTER <b>1</b> · to-GT <b>0</b></span></div>
+      <div class="person-row"><span class="nm">Tom Okafor</span><span class="role">IT Support Lead</span><span class="cnt">FRESH <b>9</b> · OTTER <b>0</b> · to-GT <b>1</b></span></div>
+      <div style="color:var(--fg-faint);margin-top:10px;font-size:11px">Click a person → filtered triage view of their open items + everything they're waiting on from GT. Data wiring lands with the JIRA source.</div>
+    </div>
+  </div>
+
+  <!-- SYSTEM -->
+  <div class="view" id="v-system">
+    <div class="stub-wrap">
+      <div class="stub-h">SOURCE HEALTH / RUNTIME <span class="soon">FULL PANEL IN PROGRESS</span></div>
+      <div class="sys-grid">
+        <div class="sys-card"><div class="sc-h"><span class="dot g"></span><b>GMAIL</b></div>
+          <div class="sc-kv"><span class="k">last poll</span><span class="v">07:41:04 (ok)</span><span class="k">interval</span><span class="v">60s</span><span class="k">items 24h</span><span class="v">312 in / 41 kept</span><span class="k">llm score</span><span class="v">p50 380ms</span></div></div>
+        <div class="sys-card"><div class="sc-h"><span class="dot g"></span><b>SLACK</b></div>
+          <div class="sc-kv"><span class="k">last poll</span><span class="v">07:41:12 (ok)</span><span class="k">interval</span><span class="v">30s</span><span class="k">items 24h</span><span class="v">188 in / 26 kept</span><span class="k">llm score</span><span class="v">p50 355ms</span></div></div>
+        <div class="sys-card err"><div class="sc-h"><span class="dot r"></span><b>FRESHSERVICE</b></div>
+          <div class="sc-kv"><span class="k">last poll</span><span class="v bad">07:39:58 (503)</span><span class="k">retry</span><span class="v">backoff 4m, attempt 3</span><span class="k">items 24h</span><span class="v">57 in / 12 kept</span><span class="k">note</span><span class="v bad">vendor incident?</span></div></div>
+        <div class="sys-card"><div class="sc-h"><span class="dot g"></span><b>OTTER</b></div>
+          <div class="sc-kv"><span class="k">last poll</span><span class="v">07:40:31 (ok)</span><span class="k">interval</span><span class="v">300s</span><span class="k">items 24h</span><span class="v">22 in / 9 kept</span><span class="k">llm score</span><span class="v">p50 402ms</span></div></div>
+        <div class="sys-card"><div class="sc-h"><span class="dot dim"></span><b>JIRA</b></div>
+          <div class="sc-kv"><span class="k">status</span><span class="v">not wired</span><span class="k">eta</span><span class="v">next sprint</span></div></div>
+        <div class="sys-card"><div class="sc-h"><span class="dot g"></span><b>RUNTIME</b></div>
+          <div class="sc-kv"><span class="k">uptime</span><span class="v">3d 11h</span><span class="k">db</span><span class="v">haven.db 18.2 MB</span><span class="k">sse clients</span><span class="v">1</span><span class="k">send mode</span><span class="v" style="color:var(--amber)">DRY-RUN</span></div></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== KEYMAP BAR ===== -->
+<div id="keymap">
+  <span class="km"><kbd>j</kbd><kbd>k</kbd><span class="lbl">navigate</span></span>
+  <span class="km"><kbd>e</kbd><span class="lbl">done</span></span>
+  <span class="km"><kbd>s</kbd><span class="lbl">snooze 1h</span></span>
+  <span class="km"><kbd>S</kbd><span class="lbl">snooze tmrw</span></span>
+  <span class="km"><kbd>c</kbd><span class="lbl">→ linear</span></span>
+  <span class="km"><kbd>d</kbd><span class="lbl">draft reply</span></span>
+  <span class="km"><kbd>a</kbd><kbd>r</kbd><span class="lbl">approve / reject</span></span>
+  <span class="km"><kbd>n</kbd><kbd>h</kbd><span class="lbl">noise / handled</span></span>
+  <span class="km"><kbd>1</kbd>–<kbd>4</kbd><span class="lbl">views</span></span>
+  <span class="km"><kbd>?</kbd><span class="lbl">help</span></span>
+  <span id="km-msg"></span>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ============================== DATA ============================== */
+const ITEMS = [
+ {id:1, urg:"urgent", src:"gmail", age:"12m", from:"Coupa <no-reply@coupa>", subj:"APPROVAL: PO-8841 Hamamatsu photodiode arrays — $184,300", snip:"Requested by D. Kessler (Test Eng). Budget line CAPEX-Q3-07.", tag:"approval", st:"new",
+  detail:"Coupa purchase approval PO-8841. Hamamatsu S13xx photodiode arrays for TeraPHY test bench expansion, qty 40. Requester: Dana Kessler, Test Engineering. Charged to CAPEX-Q3-07 (remaining $412k). Second approver after you: CFO. SLA expires in 3h 48m."},
+ {id:2, urg:"urgent", src:"fresh", age:"27m", from:"Freshservice #INC-4471", subj:"P1: Okta SSO intermittent failures — 14 users, Fab-2 shift blocked", snip:"Assigned: T. Okafor. Auth error rate 9% and climbing.", tag:"action", st:"new",
+  detail:"P1 incident INC-4471. Okta SSO auth failures affecting 14 users incl. Fab-2 night shift handoff. Tom Okafor leading. Suspected: cert rotation on the reverse proxy at 06:00. Needs CIO ack for emergency change window CHG-0992."},
+ {id:3, urg:"urgent", src:"slack", age:"41m", from:"#exec-staff · R. Anand", subj:"@garth board deck v3 — need your infra capex slide locked by 2pm", snip:"Rest of deck is frozen. Yours is the last open slide.", tag:"action", st:"draft",
+  detail:"Rohit Anand (CEO office) in #exec-staff: infra capex slide (slide 14) is the last unlocked slide in the Q3 board deck v3. Deadline 14:00 today. Agent has a reply drafted — see APPROVALS."},
+ {id:4, urg:"high", src:"gmail", age:"1h", from:"DocuSign <dse@docusign>", subj:"SIGN: Zanker Rd Lab Buildout — GC Amendment #2 ($96k change order)", snip:"Routed by S. Whitcombe. 2 of 3 signatures complete.", tag:"approval", st:"new",
+  detail:"DocuSign envelope: Amendment #2 to the Zanker general-contractor agreement. Change order $96,400 — cleanroom HVAC reheat coils + BMS points. Facilities and Legal have signed; you are the final signer."},
+ {id:5, urg:"high", src:"otter", age:"1h", from:"Otter · GlobalFoundries sync", subj:"AR (GT): confirm Fab-D wafer allocation split for TeraPHY Gen-3 by Fri", snip:"From 07:00 GF weekly. Owner: GT. Due: Jul 24.", tag:"action", st:"new",
+  detail:"Action item extracted from this morning's GlobalFoundries weekly sync. GT to confirm the Fab-D wafer-start allocation split between TeraPHY Gen-3 risk lots and production before Friday. Related attendee follow-up: M. Delgado to send updated demand sheet."},
+ {id:6, urg:"high", src:"slack", age:"2h", from:"#it-infra · P. Raghunathan", subj:"Colo contract renewal — SJC-05 quote came in 18% over. Escalate or renegotiate?", snip:"Need direction before Thu vendor call.", tag:"action", st:"draft",
+  detail:"Priya Raghunathan: Equinix SJC-05 renewal quote 18% above last term. Options: (a) push back w/ multi-year commit, (b) escalate to procurement, (c) start migration study. Vendor call Thursday 10:00. Agent drafted a reply — see APPROVALS."},
+ {id:7, urg:"high", src:"gmail", age:"2h", from:"Concur Travel", subj:"ITINERARY: SFO→TPE Jul 27, TSMC + OSAT visits — hotel unconfirmed", snip:"EVA BR-27 dep 01:15. Hsinchu hotel waitlisted.", tag:"travel", st:"new",
+  detail:"Taipei trip Jul 27–31. EVA BR-27 SFO→TPE confirmed, seat 4A. Hsinchu Ambassador waitlisted — Concur suggests fallback (Sheraton Hsinchu). Ground transport unbooked for Jul 29 OSAT visit."},
+ {id:8, urg:"high", src:"fresh", age:"3h", from:"Freshservice #CHG-0989", subj:"CAB approval: NetSuite→Snowflake nightly sync cutover, window Sat 02:00", snip:"Risk: med. Rollback tested. Awaiting CIO vote.", tag:"approval", st:"new",
+  detail:"Change request CHG-0989: cut over the NetSuite→Snowflake nightly financial sync to the new dbt pipeline. Window Sat 02:00–05:00. Rollback rehearsed on staging. CAB votes: 3 approve / 0 reject / 1 pending (you)."},
+ {id:9, urg:"med", src:"slack", age:"3h", from:"#security · E. Volkova", subj:"Phishing sim results: 6.2% click rate, 2 credential submits (both revoked)", snip:"Full report in thread. Repeat offenders flagged.", tag:"fyi", st:"new",
+  detail:"Quarterly phishing simulation complete. 6.2% click rate (down from 9.1%). Two credential submissions, both sessions revoked and users enrolled in refresher. Elena will present at next security council."},
+ {id:10, urg:"med", src:"otter", age:"4h", from:"Otter · ELT staff mtg", subj:"AR (GT): circulate AI-tooling usage policy draft to ELT before offsite", snip:"Owner: GT. Due: Jul 22. Mentioned by CEO.", tag:"action", st:"new",
+  detail:"From Monday ELT staff meeting: GT to circulate the internal AI-tooling usage policy draft to ELT before the Jul 23 offsite. Legal review already complete per S. Whitcombe."},
+ {id:11, urg:"med", src:"gmail", age:"5h", from:"Coupa <no-reply@coupa>", subj:"APPROVAL: PO-8836 Keysight scope rental extension — $11,900/mo x3", snip:"Requested by photonics test. Budget OPEX-ENG.", tag:"approval", st:"new",
+  detail:"Coupa PO-8836: extend Keysight UXR oscilloscope rental 3 months for SuperNova bring-up. $11,900/mo. Within your single-approver limit."},
+ {id:12, urg:"med", src:"fresh", age:"6h", from:"Freshservice #SR-2210", subj:"New-hire batch Aug 4: 11 laptops, 3 lab workstations — dock shortage flagged", snip:"T. Okafor: 4 TB4 docks short, lead time 2wks.", tag:"action", st:"snoozed",
+  detail:"Service request SR-2210 for the Aug 4 start class. Hardware staged except 4 Thunderbolt docks (2-week lead). Tom proposes loaner docks from the lab pool. Snoozed until tomorrow 08:00."},
+ {id:13, urg:"med", src:"slack", age:"7h", from:"#helpdesk · M. Delgado", subj:"NetSuite sandbox refresh done — UAT for the approval-matrix change can start", snip:"Asks who signs off on the test plan.", tag:"action", st:"new",
+  detail:"Marcus Delgado: NetSuite sandbox refreshed. UAT for the new procurement approval-matrix can begin. Question to GT: does Finance or IT own sign-off on the test plan this cycle?"},
+ {id:14, urg:"med", src:"gmail", age:"8h", from:"L. Fontaine (Meridian LLP)", subj:"Draft DPA for Otter.ai enterprise tier — redlines attached", snip:"3 open points: retention, subprocessors, audit rights.", tag:"action", st:"new",
+  detail:"Outside counsel returned the Otter.ai DPA redlines. Open points: (1) 18-month retention vs our 12, (2) subprocessor notice window, (3) audit rights scope. Asks for GT position by EOW."},
+ {id:15, urg:"low", src:"gmail", age:"9h", from:"Gartner Peer Insights", subj:"Your Q3 infrastructure benchmark report is ready", snip:"Mid-market semiconductor cohort, 34 peers.", tag:"fyi", st:"new",
+  detail:"Gartner benchmark for mid-market semis is available. No action; flagged because 'capex' watchlist keyword matched the summary."},
+ {id:16, urg:"low", src:"slack", age:"10h", from:"#general · facilities-bot", subj:"Parking structure B closed Fri for restriping", snip:"Use lot C. Badge access unchanged.", tag:"noise", st:"new",
+  detail:"Facilities notice. Classified noise (score 0.12). Shown only when 'hide noise' is off."},
+ {id:17, urg:"low", src:"gmail", age:"11h", from:"Coupa <no-reply@coupa>", subj:"REMINDER: PO-8802 laminar flow bench — expires in 24h", snip:"Original request Jul 11. $23,750.", tag:"approval", st:"new",
+  detail:"Reminder on PO-8802 (laminar flow bench for the optics lab, $23,750). Approval expires in 24h and reroutes to the CFO if untouched."},
+ {id:18, urg:"low", src:"otter", age:"1d", from:"Otter · IT staff mtg", subj:"AR (GT): decide Grafana vs Datadog consolidation direction by end of month", snip:"Owner: GT. Due: Jul 31. Cost delta ~$60k/yr.", tag:"action", st:"new",
+  detail:"From IT staff meeting: consolidate observability tooling. Priya's analysis: Datadog-only ≈ +$60k/yr but kills 3 self-hosted Grafana stacks. Decision owner: GT, due Jul 31."},
+ {id:19, urg:"low", src:"slack", age:"1d", from:"#random · quote-bot", subj:"Daily standup quote", snip:"\"Simplicity is the soul of efficiency.\"", tag:"noise", st:"new",
+  detail:"Bot chatter. Classified noise (score 0.03)."},
+ {id:20, urg:"med", src:"gmail", age:"1d", from:"J. Marchetti (BlueRidge Cap)", subj:"Intro: portfolio CISO roundtable, Aug 12 — asking if you'll join panel", snip:"30-min slot on AI governance in hardware cos.", tag:"action", st:"draft",
+  detail:"Board-adjacent investor asking GT to sit on a CISO/CIO roundtable panel Aug 12 (AI governance topic). Agent drafted a polite acceptance pending calendar check — see APPROVALS."}
+];
+
+const APPROVALS = [
+ {id:"A1", itemRef:3, via:"slack", to:"#exec-staff · reply to R. Anand", agent:"drafter/slack-v2", conf:0.91,
+  draft:"On it. Infra capex slide (14) will be locked by 1:30pm — final numbers land after the 11am Coupa sweep [1]. Two changes vs v2: colo renewal moved to FY27 pending the SJC-05 renegotiation [2], and the test-bench photodiode buy is now reflected under Q3 CAPEX [3]. Will ping you when it's frozen.",
+  evidence:[
+   {n:1, src:"GMAIL · Coupa digest 07:02", txt:"3 pending capex approvals totaling $219,950 awaiting GT action (PO-8841, PO-8836, PO-8802)."},
+   {n:2, src:"SLACK · #it-infra · P. Raghunathan 05:58", txt:"SJC-05 renewal quote 18% over; recommending we hold commitment until renegotiation call Thursday."},
+   {n:3, src:"GMAIL · Coupa PO-8841 07:29", txt:"Hamamatsu photodiode arrays $184,300, budget line CAPEX-Q3-07, requester D. Kessler."}
+  ]},
+ {id:"A2", itemRef:6, via:"slack", to:"#it-infra · reply to P. Raghunathan", agent:"drafter/slack-v2", conf:0.84,
+  draft:"Let's renegotiate before escalating. Take option (a) into Thursday's call: 3-yr commit in exchange for holding current rate +CPI, and ask them to price the cross-connect bundle separately [1]. If they won't move below +8%, loop in procurement and I'll join the follow-up. Park the migration study for now — Fab-2 latency constraint makes SJC exit unrealistic this FY [2].",
+  evidence:[
+   {n:1, src:"SLACK · #it-infra · P. Raghunathan 05:58", txt:"Quote is 18% over last term; cross-connects are 22% of the line items and never renegotiated."},
+   {n:2, src:"OTTER · IT staff mtg Jul 15", txt:"Priya: any colo move breaks the <2ms latency requirement for the Fab-2 test data pipeline until the dark-fiber build completes."}
+  ]},
+ {id:"A3", itemRef:20, via:"gmail", to:"J. Marchetti <j.marchetti@blueridgecap.example>", agent:"drafter/email-v1", conf:0.77,
+  draft:"Hi Julia,\n\nHappy to join the Aug 12 roundtable — AI governance in hardware companies is squarely what we've been working through this year [1]. Penciling it in now; my EA will confirm once the Taipei trip return leg is finalized, since I land back Jul 31 [2].\n\nCould you send the panel format and the other participants when settled?\n\nThanks, GT",
+  evidence:[
+   {n:1, src:"OTTER · ELT staff mtg Jul 14", txt:"AR: GT to circulate AI-tooling usage policy draft to ELT before the offsite — CEO flagged it as a board-visible topic."},
+   {n:2, src:"GMAIL · Concur itinerary 05:12", txt:"SFO→TPE Jul 27, return TPE→SFO Jul 31 (BR-26), hotel segment still unconfirmed."}
+  ]}
+];
+
+/* ============================== STATE ============================== */
+let state = {
+  view:"triage",
+  cursor:0,           // index into visible triage rows
+  aqCursor:0,
+  hideNoise:true,
+  hideHandled:false,
+  watchlist:["capex","okta","board deck","TPE"],
+  items:ITEMS.map(i=>({...i})),
+  approvals:APPROVALS.map(a=>({...a})),
+};
+
+/* ============================== HELPERS ============================== */
+const $ = s=>document.querySelector(s);
+const esc = s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function hlWatch(s){
+  let out = esc(s);
+  for(const w of state.watchlist){
+    const re = new RegExp("("+w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+")","ig");
+    out = out.replace(re,'<span class="wl">$1</span>');
+  }
+  return out;
+}
+function toast(msg){
+  const t=$("#toast"); t.textContent=msg; t.classList.add("show");
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),1600);
+  $("#km-msg").textContent=msg;
+}
+function visibleItems(){
+  return state.items.filter(i=>{
+    if(state.hideNoise && i.tag==="noise") return false;
+    if(state.hideHandled && (i.st==="done"||i.st==="snoozed")) return false;
+    return true;
+  });
+}
+
+/* ============================== RENDER: TRIAGE ============================== */
+const SRC_LBL={gmail:"GMAIL",slack:"SLACK",fresh:"FRESH",otter:"OTTER",jira:"JIRA"};
+const URG_LBL={urgent:"URG!",high:"HIGH",med:"MED",low:"LOW"};
+
+function renderTriage(){
+  const vis = visibleItems();
+  if(state.cursor >= vis.length) state.cursor = Math.max(0,vis.length-1);
+  const tb = $("#rows");
+  tb.innerHTML = vis.map((i,idx)=>`
+    <tr class="${idx===state.cursor?"sel":""} ${i.st==="done"?"done":""} ${i.st==="snoozed"?"snoozed":""}" data-idx="${idx}">
+      <td class="cur">${idx===state.cursor?"▸":""}</td>
+      <td><span class="urg ${i.urg}">${URG_LBL[i.urg]}</span></td>
+      <td><span class="src ${i.src}">${SRC_LBL[i.src]}</span></td>
+      <td class="age">${i.age}</td>
+      <td class="from">${esc(i.from)}</td>
+      <td class="subj">${hlWatch(i.subj)} <span class="snip">— ${hlWatch(i.snip)}</span></td>
+      <td><span class="tag ${i.tag}">${i.tag.toUpperCase()}</span></td>
+      <td><span class="st ${i.st}">${i.st==="draft"?"REPLY-DRAFTED":i.st.toUpperCase()}</span></td>
+    </tr>`).join("");
+  tb.querySelectorAll("tr").forEach(tr=>{
+    tr.addEventListener("click",()=>{state.cursor=+tr.dataset.idx;renderTriage();});
+  });
+  $("#tab-n").textContent = vis.length;
+  renderInspector(vis[state.cursor]);
+  renderCounts();
+  const selRow = tb.querySelector("tr.sel");
+  if(selRow) selRow.scrollIntoView({block:"nearest"});
+}
+
+function renderInspector(item){
+  const b=$("#insp-body");
+  if(!item){ b.innerHTML='<div class="insp-empty">no item selected</div>'; return; }
+  b.innerHTML=`
+    <div class="kv">
+      <span class="k">SOURCE</span><span class="v"><span class="src ${item.src}">${SRC_LBL[item.src]}</span></span>
+      <span class="k">FROM</span><span class="v">${esc(item.from)}</span>
+      <span class="k">URGENCY</span><span class="v"><span class="urg ${item.urg}">${URG_LBL[item.urg]}</span></span>
+      <span class="k">TAG</span><span class="v"><span class="tag ${item.tag}">${item.tag.toUpperCase()}</span></span>
+      <span class="k">AGE</span><span class="v">${item.age} (first seen) · seen 2x</span>
+      <span class="k">STATE</span><span class="v"><span class="st ${item.st}">${item.st.toUpperCase()}</span></span>
+      <span class="k">LLM</span><span class="v">score 0.${(60+item.id*7)%40+55 > 94 ? 91 : (60+item.id*7)%40+55} · "${item.tag}/${item.urg}"</span>
+    </div>
+    <div class="insp-snip">${esc(item.detail)}</div>
+    <div class="insp-actions">
+      <button class="act" data-a="done"><span class="k">e</span>done</button>
+      <button class="act" data-a="snooze"><span class="k">s</span>snooze 1h</button>
+      <button class="act" data-a="snoozeT"><span class="k">S</span>tomorrow</button>
+      <button class="act" data-a="linear"><span class="k">c</span>→ linear</button>
+      <button class="act" data-a="draft"><span class="k">d</span>draft reply</button>
+    </div>`;
+  b.querySelectorAll(".act").forEach(btn=>btn.addEventListener("click",()=>actOn(btn.dataset.a)));
+}
+
+function renderCounts(){
+  const live = state.items.filter(i=>i.st!=="done"&&i.st!=="snoozed");
+  $("#c-ar").textContent = live.filter(i=>i.tag==="action"||i.tag==="approval").length;
+  $("#c-ap").textContent = state.approvals.length;
+  $("#c-re").textContent = live.filter(i=>i.st==="draft").length + 1;
+  $("#c-im").textContent = live.filter(i=>i.urg==="urgent"||i.urg==="high").length;
+  $("#aq-badge").textContent = state.approvals.length;
+}
+
+/* ============================== ACTIONS: TRIAGE ============================== */
+function actOn(a){
+  const vis=visibleItems(); const item=vis[state.cursor]; if(!item) return;
+  const real=state.items.find(i=>i.id===item.id);
+  switch(a){
+    case "done":    real.st="done";    toast(`#${real.id} marked done`); break;
+    case "snooze":  real.st="snoozed"; toast(`#${real.id} snoozed until 08:41`); break;
+    case "snoozeT": real.st="snoozed"; toast(`#${real.id} snoozed until tomorrow 06:30`); break;
+    case "linear":  toast(`#${real.id} captured → Linear AYAR-… (simulated)`); break;
+    case "draft":   real.st="draft";   toast(`draft queued for #${real.id} → APPROVALS`); break;
+  }
+  renderTriage();
+}
+
+/* ============================== RENDER: APPROVALS ============================== */
+function renderApprovals(){
+  const list=$("#aq-list"), det=$("#aq-detail");
+  if(state.approvals.length===0){
+    list.innerHTML="";
+    det.innerHTML='<div class="aq-empty"><b>QUEUE CLEAR.</b><br><br>No drafts awaiting review.<br>New drafts appear here when an agent proposes a reply.</div>';
+    renderCounts(); return;
+  }
+  if(state.aqCursor>=state.approvals.length) state.aqCursor=state.approvals.length-1;
+  list.innerHTML = state.approvals.map((a,idx)=>`
+    <div class="aq-item ${idx===state.aqCursor?"sel":""}" data-idx="${idx}">
+      <div class="l1"><span style="color:var(--accent-bright)">${idx===state.aqCursor?"▸":"&nbsp;"}</span>
+        <span class="who">${esc(a.to.split("·")[0].trim())}</span>
+        <span class="via src ${a.via}">${SRC_LBL[a.via]}</span></div>
+      <div class="prev">${esc(a.draft.slice(0,86))}…</div>
+      <div class="meta">${a.evidence.length} citations · conf ${a.conf.toFixed(2)} · ${esc(a.agent)}</div>
+    </div>`).join("");
+  list.querySelectorAll(".aq-item").forEach(el=>el.addEventListener("click",()=>{state.aqCursor=+el.dataset.idx;renderApprovals();}));
+
+  const a=state.approvals[state.aqCursor];
+  let body=esc(a.draft).replace(/\[(\d)\]/g,'<a class="cite" data-n="$1">[$1]</a>');
+  det.innerHTML=`
+    <div class="aq-head">
+      <span style="color:var(--fg-faint);font-size:10px;letter-spacing:1.5px">SEND VIA</span>
+      <span class="src ${a.via}">${SRC_LBL[a.via]}</span>
+      <span style="color:var(--fg-faint)">→</span><span class="to">${esc(a.to)}</span>
+      <span style="margin-left:auto;color:var(--fg-faint);font-size:10px">draft ${a.id} · ${esc(a.agent)} · conf ${a.conf.toFixed(2)}</span>
+    </div>
+    <div class="draft-box">
+      <div class="db-h"><span>PROPOSED MESSAGE</span><span class="agent">AGENT DRAFT — NOT SENT</span></div>
+      <div class="draft-body">${body}</div>
+    </div>
+    <div class="ev-h">EVIDENCE — ${a.evidence.length} CITED SOURCE ITEMS</div>
+    ${a.evidence.map(e=>`<div class="ev" id="ev-${a.id}-${e.n}"><span class="ev-src">[${e.n}] ${esc(e.src)}</span><div class="ev-txt">${esc(e.txt)}</div></div>`).join("")}
+    <div class="aq-actions">
+      <button class="btn-approve" id="btn-approve">A&nbsp;· APPROVE ▸ SEND</button>
+      <button class="btn-reject" id="btn-reject">R&nbsp;· REJECT</button>
+      <span class="one-send">ONE APPROVAL = ONE SEND</span>
+      <span class="aq-note" style="margin-left:auto">dry-run: send is simulated &amp; logged</span>
+    </div>`;
+  det.querySelectorAll(".cite").forEach(c=>c.addEventListener("click",()=>{
+    const ev=document.getElementById(`ev-${a.id}-${c.dataset.n}`);
+    if(ev){ev.scrollIntoView({block:"center"});ev.style.background="#0e2a2e";setTimeout(()=>ev.style.background="",700);}
+  }));
+  $("#btn-approve").addEventListener("click",()=>resolveApproval(true));
+  $("#btn-reject").addEventListener("click",()=>resolveApproval(false));
+  renderCounts();
+}
+
+function resolveApproval(ok){
+  const a=state.approvals[state.aqCursor]; if(!a) return;
+  state.approvals.splice(state.aqCursor,1);
+  toast(ok?`${a.id} APPROVED — [DRY-RUN] send simulated to ${a.to.split("·")[0].trim()}`
+          :`${a.id} REJECTED — draft discarded, item back in triage`);
+  renderApprovals();
+}
+
+/* ============================== FILTERS / WATCHLIST ============================== */
+function renderFilters(){
+  $("#tg-noise").classList.toggle("on",state.hideNoise);
+  $("#tg-noise .box").textContent=state.hideNoise?"x":"";
+  $("#tg-handled").classList.toggle("on",state.hideHandled);
+  $("#tg-handled .box").textContent=state.hideHandled?"x":"";
+  $("#wl-chips").innerHTML=state.watchlist.map(w=>
+    `<span class="wl-chip" data-w="${esc(w)}">${esc(w)}<span class="x">×</span></span>`).join(" ");
+  document.querySelectorAll(".wl-chip").forEach(ch=>ch.addEventListener("click",()=>{
+    state.watchlist=state.watchlist.filter(w=>w!==ch.dataset.w);
+    toast(`watchlist − "${ch.dataset.w}"`); renderFilters(); renderTriage();
+  }));
+}
+$("#tg-noise").addEventListener("click",()=>{state.hideNoise=!state.hideNoise;renderFilters();renderTriage();});
+$("#tg-handled").addEventListener("click",()=>{state.hideHandled=!state.hideHandled;renderFilters();renderTriage();});
+$("#wl-add").addEventListener("click",()=>{
+  const w=prompt("Add watchlist keyword:");
+  if(w&&w.trim()){state.watchlist.push(w.trim());toast(`watchlist + "${w.trim()}"`);renderFilters();renderTriage();}
+});
+
+/* ============================== VIEWS ============================== */
+function setView(v){
+  state.view=v;
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===v));
+  document.querySelectorAll(".view").forEach(el=>el.classList.remove("active"));
+  $("#v-"+v).classList.add("active");
+  if(v==="approvals") renderApprovals();
+  if(v==="triage") renderTriage();
+}
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>setView(t.dataset.view)));
+
+/* ============================== KEYBOARD ============================== */
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA") return;
+  const k=e.key;
+  if(k==="1")return setView("triage");
+  if(k==="2")return setView("approvals");
+  if(k==="3")return setView("people");
+  if(k==="4")return setView("system");
+  if(k==="?"){toast("keys: j/k nav · e done · s/S snooze · c linear · d draft · a/r approve/reject · n/h filters · 1-4 views");return;}
+
+  if(state.view==="triage"){
+    const vis=visibleItems();
+    if(k==="j"){state.cursor=Math.min(state.cursor+1,vis.length-1);renderTriage();}
+    else if(k==="k"){state.cursor=Math.max(state.cursor-1,0);renderTriage();}
+    else if(k==="e")actOn("done");
+    else if(k==="s")actOn("snooze");
+    else if(k==="S")actOn("snoozeT");
+    else if(k==="c")actOn("linear");
+    else if(k==="d")actOn("draft");
+    else if(k==="n"){state.hideNoise=!state.hideNoise;renderFilters();renderTriage();toast("hide noise: "+(state.hideNoise?"ON":"OFF"));}
+    else if(k==="h"){state.hideHandled=!state.hideHandled;renderFilters();renderTriage();toast("hide handled: "+(state.hideHandled?"ON":"OFF"));}
+  } else if(state.view==="approvals"){
+    if(k==="j"){state.aqCursor=Math.min(state.aqCursor+1,state.approvals.length-1);renderApprovals();}
+    else if(k==="k"){state.aqCursor=Math.max(state.aqCursor-1,0);renderApprovals();}
+    else if(k==="a")resolveApproval(true);
+    else if(k==="r")resolveApproval(false);
+  }
+});
+
+/* ============================== CLOCK / SSE SIM ============================== */
+setInterval(()=>{
+  const d=new Date();
+  $("#clock").textContent=d.toTimeString().slice(0,8)+" PDT";
+},1000);
+let sseAge=4;
+setInterval(()=>{sseAge=(sseAge+1)%23;$("#sse-n").textContent=`last evt ${sseAge||1}s`;},1000);
+
+/* ============================== INIT ============================== */
+renderFilters();
+renderTriage();
+renderApprovals();
+</script>
+</body>
+</html>

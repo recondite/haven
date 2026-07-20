@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haven — Approvals</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; max-width: 760px;
+         margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; }
+  .banner { background: #b9770022; border: 1px solid #b97700; color: #b97700;
+            padding: .4rem .7rem; border-radius: 6px; font-size: .85rem; margin-bottom: 1rem; }
+  .card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin: .8rem 0; }
+  .meta { font-size: .8rem; opacity: .7; margin-bottom: .4rem; }
+  .payload { white-space: pre-wrap; background: #8881; padding: .6rem; border-radius: 6px; }
+  .evidence { font-size: .8rem; opacity: .8; margin-top: .5rem; }
+  button { font: inherit; padding: .35rem .9rem; border-radius: 6px; border: 1px solid #8886;
+           cursor: pointer; margin-right: .5rem; margin-top: .7rem; }
+  .approve { background: #1a7f37; color: #fff; border-color: #1a7f37; }
+  .reject { background: transparent; }
+  .empty { opacity: .6; }
+</style>
+</head>
+<body>
+<h1>Approval queue</h1>
+<div id="banner" class="banner" hidden>DRY-RUN mode — approving records the action but sends nothing.</div>
+<div id="list"><p class="empty">Loading…</p></div>
+<script>
+async function load() {
+  const r = await fetch("/api/approvals");
+  if (!r.ok) { document.getElementById("list").innerHTML = "<p class='empty'>Error " + r.status + "</p>"; return; }
+  const data = await r.json();
+  document.getElementById("banner").hidden = !data.dry_run;
+  const list = document.getElementById("list");
+  if (!data.drafts.length) { list.innerHTML = "<p class='empty'>No pending drafts.</p>"; return; }
+  list.innerHTML = "";
+  for (const d of data.drafts) {
+    const ev = (d.evidence || []).map(e => `${e.source || "?"} ${e.msg_id || ""}`).join(", ");
+    const el = document.createElement("div");
+    el.className = "card";
+    el.innerHTML = `
+      <div class="meta">#${d.id} · ${d.kind} → ${d.target || "—"} · job ${d.job_id ?? "—"}</div>
+      <div class="payload"></div>
+      ${ev ? `<div class="evidence">Evidence: ${ev}</div>` : ""}
+      <div>
+        <button class="approve">Approve</button>
+        <button class="reject">Reject</button>
+      </div>`;
+    el.querySelector(".payload").textContent = d.payload;
+    el.querySelector(".approve").onclick = () => act(d.id, "approve");
+    el.querySelector(".reject").onclick = () => act(d.id, "reject");
+    list.appendChild(el);
+  }
+}
+async function act(id, verb) {
+  const r = await fetch(`/api/approvals/${id}/${verb}`, { method: "POST",
+    headers: { "content-type": "application/json" }, body: "{}" });
+  if (!r.ok) { alert(verb + " failed: " + r.status); return; }
+  load();
+}
+load();
+</script>
+</body>
+</html>

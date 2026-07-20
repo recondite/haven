@@ -64,6 +64,24 @@ class TestApplyFilter:
         decision, reason, flags = filters.apply_filter({"sender_email": "spam@x.com"})
         assert decision == Decision.REJECT
 
+    def test_ignore_label_rejected(self, monkeypatch):
+        # The Gmail "ignore" label always rejects, regardless of case.
+        decision, reason, _ = filters.apply_filter(
+            {"sender_email": "lisa@ayarlabs.com", "sender_domain": "ayarlabs.com",
+             "labels": ["INBOX", "Ignore"]}
+        )
+        assert decision == Decision.REJECT
+        assert reason == "ignore label"
+
+    def test_ignore_label_beats_watchlist(self, monkeypatch):
+        # Ignore is checked before watchlist, so it wins even on a watchlist hit.
+        monkeypatch.setattr(filters, "_load_watchlist_raw", lambda: ["boardprep"])
+        decision, _, _ = filters.apply_filter(
+            {"sender_email": "ext@vendor.com", "subject": "boardprep deck",
+             "labels": ["ignore"]}
+        )
+        assert decision == Decision.REJECT
+
     def test_watchlist_force_keep(self, monkeypatch):
         monkeypatch.setattr(filters, "_load_watchlist_raw", lambda: ["boardprep"])
         decision, reason, flags = filters.apply_filter(
@@ -129,3 +147,280 @@ class TestApplyFilter:
             {"sender_email": "x@ext.com", "sender_domain": "ext.com", "subject": "anything"}
         )
         assert decision == Decision.UNCERTAIN
+
+
+class TestKeepOnlyIfDirect:
+    """it-helpdesk / Freshservice blasts: kept only when Garth is a direct To:."""
+
+    CFG = {
+        "self_email": "garth@ayarlabs.com",
+        "keep_only_if_direct": {"senders": ["it-helpdesk@ayarlabs.com"]},
+        # ayarlabs.com would otherwise auto-accept — proves the rule runs first.
+        "keep": {"domains": ["ayarlabs.com"]},
+    }
+
+    def test_cc_only_rejected_via_to_list(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, reason, _ = filters.apply_filter({
+            "sender_email": "it-helpdesk@ayarlabs.com", "sender_domain": "ayarlabs.com",
+            "subject": "Re: Lactation Room",
+            "to": [{"email": "someone@ayarlabs.com"}],
+            "cc": [{"email": "garth@ayarlabs.com"}],
+        })
+        assert decision == Decision.REJECT
+        assert "directly addressed" in reason
+
+    def test_direct_to_kept_via_to_list(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, _, flags = filters.apply_filter({
+            "sender_email": "it-helpdesk@ayarlabs.com", "sender_domain": "ayarlabs.com",
+            "subject": "[ IT ] New ticket has been created",
+            "to": [{"email": "garth@ayarlabs.com"}],
+        })
+        assert decision == Decision.ACCEPT
+        assert flags.get("direct_to_garth") is True
+
+    def test_uses_recipient_role_when_present(self, monkeypatch):
+        # Cached/refiltered payloads carry garth_recipient_role instead of to/cc.
+        _set_config(monkeypatch, self.CFG)
+        rejected, _, _ = filters.apply_filter({
+            "sender_email": "it-helpdesk@ayarlabs.com", "sender_domain": "ayarlabs.com",
+            "garth_recipient_role": "cc",
+        })
+        kept, _, _ = filters.apply_filter({
+            "sender_email": "it-helpdesk@ayarlabs.com", "sender_domain": "ayarlabs.com",
+            "garth_recipient_role": "to",
+        })
+        assert rejected == Decision.REJECT
+        assert kept == Decision.ACCEPT
+
+    def test_block_still_wins(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        monkeypatch.setattr(filters, "_load_blocklist",
+                            lambda: {"senders": [{"email": "it-helpdesk@ayarlabs.com"}], "domains": []})
+        decision, _, _ = filters.apply_filter({
+            "sender_email": "it-helpdesk@ayarlabs.com", "sender_domain": "ayarlabs.com",
+            "to": [{"email": "garth@ayarlabs.com"}],
+        })
+        assert decision == Decision.REJECT
+
+    def test_other_ayar_sender_unaffected(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, _, flags = filters.apply_filter({
+            "sender_email": "lisa@ayarlabs.com", "sender_domain": "ayarlabs.com",
+            "cc": [{"email": "garth@ayarlabs.com"}],
+        })
+        assert decision == Decision.ACCEPT  # normal ayarlabs.com keep still applies
+
+
+class TestGoogleDriveShares:
+    """Google Drive share / access-request notifications must be rejected even
+    though google.com is in noreply_allowlist_domains — never_keep runs first."""
+
+    # Mirror the real gmail.yaml rules under test.
+    CFG = {
+        "never_keep": {
+            "sender_patterns": [r"\bdrive-shares[\w.+-]*@"],
+            "subject_patterns": [
+                r"\bshared (?:a|an|the|\d+|') .*with you\b",
+                r"\bshared '.*' with you\b",
+                r"\bhas shared\b.*\bwith you\b",
+                r"^Invitation to (?:edit|view|comment)\b",
+                r"\b(?:is )?request(?:ed|ing)? access to\b",
+            ],
+        },
+        "keep": {"noreply_allowlist_domains": ["google.com"]},
+    }
+
+    def test_share_sender_rejected_despite_allowlist(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, reason, _ = filters.apply_filter({
+            "sender_email": "drive-shares-dm-noreply@google.com",
+            "sender_domain": "google.com",
+            "subject": "Garth Thompson shared \"Q3 Plan\" with you",
+        })
+        assert decision == Decision.REJECT
+        assert "never-keep" in reason
+
+    def test_docs_share_sender_rejected(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, _, _ = filters.apply_filter({
+            "sender_email": "drive-shares-noreply@docs.google.com",
+            "sender_domain": "docs.google.com",
+            "subject": "Invitation to edit",
+        })
+        assert decision == Decision.REJECT
+
+    def test_access_request_subject_rejected(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, _, _ = filters.apply_filter({
+            "sender_email": "drive-shares-dm-noreply@google.com",
+            "sender_domain": "google.com",
+            "subject": "Jane Doe is requesting access to Roadmap",
+        })
+        assert decision == Decision.REJECT
+
+    def test_subject_backstop_rejects_non_drive_sender(self, monkeypatch):
+        # Even if Google changes the From address, the subject backstop catches it.
+        _set_config(monkeypatch, self.CFG)
+        decision, _, _ = filters.apply_filter({
+            "sender_email": "notify@google.com", "sender_domain": "google.com",
+            "subject": "Alice shared 'Q4 Budget' with you",
+        })
+        assert decision == Decision.REJECT
+
+    def test_human_email_not_falsely_rejected(self, monkeypatch):
+        # A real person from an allowlisted-but-not-drive sender shouldn't be
+        # caught; non-share Google notifications still defer to the LLM.
+        _set_config(monkeypatch, self.CFG)
+        decision, _, _ = filters.apply_filter({
+            "sender_email": "calendar-notification@google.com",
+            "sender_domain": "google.com",
+            "subject": "Notification: Standup",
+        })
+        assert decision == Decision.UNCERTAIN  # noreply allowlist defers to LLM
+
+
+class TestTravel:
+    """Airline/hotel/car-rental confirmations are force-kept and flagged
+    is_travel, even though their noreply senders would otherwise be rejected."""
+
+    CFG = {
+        "travel": {
+            "domains": ["cathaypacific.com", "marriott.com", "hertz.com"],
+            "subject_patterns": [
+                r"\bitinerary\b",
+                r"\bbooking confirmation\b",
+                r"\bhotel (?:confirmation|reservation|booking)\b",
+            ],
+        },
+        # Prove travel runs before these noreply rejects and would-be receipts.
+        "reject": {"sender_patterns": [r"(?:^|[\w.+-]*[-_.])(?:noreply|no-reply)@"]},
+        "never_keep": {"subject_patterns": [r"^Your .* receipt\b"]},
+    }
+
+    def test_travel_domain_kept_despite_noreply(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, reason, flags = filters.apply_filter({
+            "sender_email": "noreply@cathaypacific.com",
+            "sender_domain": "cathaypacific.com",
+            "subject": "Your booking is confirmed",
+        })
+        assert decision == Decision.ACCEPT
+        assert flags.get("is_travel") is True
+        assert "travel domain" in reason
+
+    def test_travel_subdomain_matches(self, monkeypatch):
+        # email.cathaypacific.com should match the cathaypacific.com entry.
+        _set_config(monkeypatch, self.CFG)
+        decision, _, flags = filters.apply_filter({
+            "sender_email": "cx@email.cathaypacific.com",
+            "sender_domain": "email.cathaypacific.com",
+            "subject": "anything",
+        })
+        assert decision == Decision.ACCEPT
+        assert flags.get("is_travel") is True
+
+    def test_travel_subject_on_unknown_domain(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, _, flags = filters.apply_filter({
+            "sender_email": "noreply@some-airline.example",
+            "sender_domain": "some-airline.example",
+            "subject": "Your itinerary for trip to Tokyo",
+        })
+        assert decision == Decision.ACCEPT
+        assert flags.get("is_travel") is True
+
+    def test_travel_beats_receipt_never_keep(self, monkeypatch):
+        # A hotel confirmation also matching a receipt never_keep pattern should
+        # still be kept as travel (travel runs first).
+        _set_config(monkeypatch, self.CFG)
+        decision, _, flags = filters.apply_filter({
+            "sender_email": "noreply@marriott.com",
+            "sender_domain": "marriott.com",
+            "subject": "Your Marriott receipt and hotel confirmation",
+        })
+        assert decision == Decision.ACCEPT
+        assert flags.get("is_travel") is True
+
+    def test_blocklist_still_beats_travel(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        monkeypatch.setattr(filters, "_load_blocklist",
+                            lambda: {"senders": [{"email": "noreply@cathaypacific.com"}], "domains": []})
+        decision, _, _ = filters.apply_filter({
+            "sender_email": "noreply@cathaypacific.com",
+            "sender_domain": "cathaypacific.com",
+            "subject": "Your booking confirmation",
+        })
+        assert decision == Decision.REJECT
+
+    def test_non_travel_noreply_still_rejected(self, monkeypatch):
+        # Control: a non-travel noreply with no travel signal is still rejected.
+        _set_config(monkeypatch, self.CFG)
+        decision, _, _ = filters.apply_filter({
+            "sender_email": "noreply@randomvendor.com",
+            "sender_domain": "randomvendor.com",
+            "subject": "Check out our new features",
+        })
+        assert decision == Decision.REJECT
+
+
+class TestUrgentApprovals:
+    """Coupa (and similar) approval requests are force-kept and flagged
+    is_priority_approval; the poll pipeline pins them tag=approval/urgency=urgent."""
+
+    CFG = {
+        "urgent_approvals": {
+            "domains": ["coupahost.com", "coupa.com"],
+            "subject_patterns": [
+                r"\bapprov",
+                r"\baction required\b",
+                r"\b(?:requires|need(?:s|ed)?|pending|awaiting) (?:your )?(?:approval|review|sign-?off)\b",
+                r"\brequisition\b.*\bapprov",
+                r"\bpurchase order\b.*\bapprov",
+            ],
+        },
+        # Coupa sends from do_not_reply@ — prove approval detection runs before reject.
+        "reject": {"sender_patterns": [r"(?:^|[\w.+-]*[-_.])(?:noreply|no-reply)@"]},
+    }
+
+    def test_coupa_approval_kept_and_flagged(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, reason, flags = filters.apply_filter({
+            "sender_email": "do_not_reply@coupahost.com",
+            "sender_domain": "coupahost.com",
+            "subject": "Action Required: Approve Requisition #4471",
+        })
+        assert decision == Decision.ACCEPT
+        assert flags.get("is_priority_approval") is True
+
+    def test_coupa_subdomain_approval(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        decision, _, flags = filters.apply_filter({
+            "sender_email": "no-reply@ayarlabs.coupahost.com",
+            "sender_domain": "ayarlabs.coupahost.com",
+            "subject": "REQ-22 requires your approval",
+        })
+        assert decision == Decision.ACCEPT
+        assert flags.get("is_priority_approval") is True
+
+    def test_coupa_status_notice_not_flagged(self, monkeypatch):
+        # No approval language -> not a priority approval (poll won't pin urgent).
+        _set_config(monkeypatch, self.CFG)
+        _, _, flags = filters.apply_filter({
+            "sender_email": "do_not_reply@coupahost.com",
+            "sender_domain": "coupahost.com",
+            "subject": "Your purchase order has been received",
+        })
+        assert flags.get("is_priority_approval") is not True
+
+    def test_blocklist_beats_approval(self, monkeypatch):
+        _set_config(monkeypatch, self.CFG)
+        monkeypatch.setattr(filters, "_load_blocklist",
+                            lambda: {"senders": [{"email": "do_not_reply@coupahost.com"}], "domains": []})
+        decision, _, _ = filters.apply_filter({
+            "sender_email": "do_not_reply@coupahost.com",
+            "sender_domain": "coupahost.com",
+            "subject": "Action Required: Approve PO",
+        })
+        assert decision == Decision.REJECT

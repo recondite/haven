@@ -98,6 +98,37 @@ async def capture_to_linear(source: str, msg_id: str) -> dict:
     }
 
 
+@router.post("/gmail/thread/{thread_id}/mark-done")
+async def gmail_thread_mark_done(thread_id: str) -> dict:
+    """Mark an entire Gmail thread done in one click: archive (INBOX-label removal)
+    every cached message in the thread and flag each handled, no matter which
+    urgency bucket it landed in. Mirrors single-item mark-done but thread-wide.
+
+    Defined before the generic /{source}/{msg_id:path}/mark-done route so the
+    path-converter route doesn't capture "gmail/thread/<id>" as a msg_id.
+    """
+    items = cursor_store.get_cached_by_thread("gmail", thread_id)
+    if not items:
+        raise HTTPException(404, f"gmail thread {thread_id} not in cache")
+
+    msg_ids = list(items.keys())
+    await gmail_actions.archive_ids(msg_ids)  # one batchModify; hard-fails on error
+
+    handled_at = time.time()
+    for mid, item in items.items():
+        item["handled_at"] = handled_at
+        cursor_store.put_cached("gmail", mid, item)
+        await bus.publish("gmail_handled", {"msg_id": mid, "handled_at": handled_at})
+
+    return {
+        "thread_id": thread_id,
+        "handled": msg_ids,
+        "count": len(msg_ids),
+        "handled_at": handled_at,
+        "archived_in_source": True,
+    }
+
+
 @router.post("/{source}/{msg_id:path}/mark-done")
 async def item_mark_done(source: str, msg_id: str) -> dict:
     """Soft-mark an item as handled — drops it from hero + bucket. UI exposes
@@ -161,3 +192,48 @@ async def item_unsnooze(source: str, msg_id: str) -> dict:
 async def item_to_linear(source: str, msg_id: str) -> dict:
     """Source-generic AR capture — used by any agent (gmail, slack, freshservice, otter)."""
     return await capture_to_linear(source, msg_id)
+
+
+@router.post("/{source}/{msg_id:path}/linear/close")
+async def item_close_linear(source: str, msg_id: str) -> dict:
+    """Close the Linear issue linked to a cached item — transitions it to a
+    completed ('Done') workflow state. Reversible in Linear; never deletes
+    (per Ground Rules: status transitions on explicit user action are allowed).
+    """
+    item = _load_cached_or_404(source, msg_id)
+    issue_id = item.get("linear_id")
+    if not issue_id:
+        raise HTTPException(400, f"{source}/{msg_id} has no linked Linear issue")
+
+    try:
+        issue = await linear.close_issue(issue_id)
+    except linear.LinearError as e:
+        log.error("Linear close failed: %s", e)
+        raise HTTPException(500, f"Linear close failed: {e}")
+    except Exception as e:
+        log.error("Linear close failed:\n%s", traceback.format_exc())
+        raise HTTPException(500, f"Linear close failed: {type(e).__name__}: {e}")
+
+    closed_at = time.time()
+    state_name = (issue.get("state") or {}).get("name")
+    item["linear_closed_at"] = closed_at
+    item["linear_state"] = state_name
+    cursor_store.put_cached(source, msg_id, item)
+
+    await bus.publish(
+        f"{source}_linear_closed",
+        {
+            "msg_id": msg_id,
+            "source": source,
+            "closed_at": closed_at,
+            "linear_identifier": issue.get("identifier"),
+            "state_name": state_name,
+        },
+    )
+    return {
+        "closed_at": closed_at,
+        "msg_id": msg_id,
+        "linear_identifier": issue.get("identifier"),
+        "linear_url": issue.get("url"),
+        "state_name": state_name,
+    }

@@ -104,6 +104,47 @@ async def gmail_block(payload: dict) -> dict:
     return {"blocked": sender, "msg_id": msg_id, "domain_blocked": domain_too}
 
 
+@router.post("/api/agents/gmail/ignore")
+async def gmail_ignore(payload: dict) -> dict:
+    """Apply the Gmail "ignore" label to a message and drop it from Haven.
+
+    Unlike block (which targets the whole sender forever), ignore is per-message:
+    it tags this one email with the "ignore" Gmail label and marks it rejected so
+    Haven won't surface it again. The poll query (`-label:ignore`) plus the
+    ignore-label reject in filters.apply_filter keep it out on every future poll,
+    even a forced re-fetch. Reversible by removing the "ignore" label in Gmail.
+
+    payload = { "msg_id": "..." }
+    """
+    msg_id = payload.get("msg_id")
+    if not msg_id:
+        raise HTTPException(400, "msg_id required")
+
+    cached = cursor_store.get_cached_payloads("gmail", [msg_id])
+    item = cached.get(msg_id)
+    if not item:
+        raise HTTPException(404, f"msg_id {msg_id} not in cache")
+
+    # Apply the "ignore" label in Gmail (the "ignore flag"). Hard-fail if it
+    # errors — we don't claim it's ignored if Gmail wasn't actually tagged.
+    if not gmail_auth.is_authed():
+        raise HTTPException(400, "Gmail not authorized")
+    cfg = filters.load_config()
+    queries = cfg.get("queries") or ["is:important is:unread in:inbox -label:ignore"]
+    fetcher = GmailFetcher(auth=gmail_auth, queries=queries)
+    try:
+        await fetcher.label_messages([msg_id], "ignore")
+    except Exception as e:
+        log.error("Apply ignore label failed: %s", e)
+        raise HTTPException(500, f"Ignore failed: {type(e).__name__}: {e}")
+
+    # Mark rejected so it drops from the cache-backed views immediately.
+    cursor_store.mark_rejected("gmail", msg_id, "ignore label")
+
+    await bus.publish("gmail_ignored", {"msg_id": msg_id})
+    return {"ignored": msg_id}
+
+
 @router.post("/api/agents/gmail/archive-noise")
 async def gmail_archive_noise() -> dict:
     """Bulk-archive every cached item currently tagged 'noise'. Non-destructive."""
@@ -191,7 +232,7 @@ async def gmail_apply_noise_label() -> dict:
         return {"labeled": 0, "candidates": 0}
 
     cfg = filters.load_config()
-    queries = cfg.get("queries") or ["is:important is:unread in:inbox"]
+    queries = cfg.get("queries") or ["is:important is:unread in:inbox -label:ignore"]
     fetcher = GmailFetcher(auth=gmail_auth, queries=queries)
     try:
         labeled = await fetcher.label_messages(list(noise_ids), "noise")
@@ -231,7 +272,7 @@ async def gmail_refilter_cached() -> dict:
     if evicted and gmail_auth.is_authed():
         try:
             cfg = filters.load_config()
-            queries = cfg.get("queries") or ["is:important is:unread in:inbox"]
+            queries = cfg.get("queries") or ["is:important is:unread in:inbox -label:ignore"]
             fetcher = GmailFetcher(auth=gmail_auth, queries=queries)
             labeled_noise = await fetcher.label_messages([e["msg_id"] for e in evicted], "noise")
             log.info("Refilter applied 'noise' label to %d evicted items", labeled_noise)

@@ -35,7 +35,7 @@ from haven.spine import spine
 
 log = logging.getLogger("haven")
 
-ALLOWED_KINDS = {"slack", "email", "task", "wiki"}
+ALLOWED_KINDS = {"slack", "email", "task", "wiki", "drive"}
 
 
 class ExecutorError(Exception):
@@ -203,7 +203,43 @@ async def _gmail_send_reply(target: str, payload: str) -> dict:
     return {"provider": "gmail", "id": sent.get("id"), "threadId": sent.get("threadId"), "to": to}
 
 
-_TRANSPORTS = {"slack": _slack_post, "email": _gmail_send_reply, "wiki": _wiki_write}
+async def _drive_write(target: str, payload: str) -> dict:
+    """Create a new Google Doc, or edit one Haven previously created (drive.file).
+    target: '' or 'new:<title>' -> create; 'file:<id>' -> update that file's body.
+    Content is uploaded as text/plain and converted to a Google Doc. NEVER
+    deletes — drive.file + no delete call keeps this within ground rule #1."""
+    from googleapiclient.http import MediaInMemoryUpload
+
+    from haven.deps import gmail_auth
+    service = await gmail_auth.get_drive_service()
+    if service is None:
+        raise ExecutorError("Google Drive not authorized — re-run /oauth/authorize "
+                            "to grant the drive.file scope")
+    media = MediaInMemoryUpload(payload.encode("utf-8"), mimetype="text/plain", resumable=False)
+
+    def _create(title: str) -> dict:
+        return service.files().create(
+            body={"name": title, "mimeType": "application/vnd.google-apps.document"},
+            media_body=media, fields="id,name,webViewLink").execute()
+
+    def _update(file_id: str) -> dict:
+        return service.files().update(fileId=file_id, media_body=media,
+                                      fields="id,name,webViewLink").execute()
+
+    t = target or ""
+    if t.startswith("file:"):
+        res = await asyncio.to_thread(_update, t[5:])
+        op = "updated"
+    else:
+        title = t[4:] if t.startswith("new:") else (t or "Haven document")
+        res = await asyncio.to_thread(_create, title)
+        op = "created"
+    return {"provider": "drive", "op": op, "file_id": res.get("id"),
+            "name": res.get("name"), "url": res.get("webViewLink")}
+
+
+_TRANSPORTS = {"slack": _slack_post, "email": _gmail_send_reply, "wiki": _wiki_write,
+               "drive": _drive_write}
 
 
 async def approve(draft_id: int, actor: str = "gt") -> dict:

@@ -22,6 +22,29 @@ async def page(path: str) -> dict:
     return {"path": path, "content": content}
 
 
+@router.post("/export-doc")
+async def export_doc(payload: dict) -> dict:
+    """Queue a Google Doc export as an approval-gated 'drive' draft. Body:
+    {title, content} for arbitrary content, or {path} to export a wiki page.
+    Nothing is written to Drive until GT approves (and drive.file is granted)."""
+    path = (payload.get("path") or "").strip()
+    if path:
+        content = knowledge.get_page(path)
+        if content is None:
+            raise HTTPException(404, f"page not found: {path}")
+        title = path.rsplit("/", 1)[-1].removesuffix(".md")
+    else:
+        title = (payload.get("title") or "").strip()
+        content = (payload.get("content") or "").strip()
+    if not title or not content:
+        raise HTTPException(400, "title+content (or path) required")
+    draft_id = spine.create_draft(None, "drive", f"new:{title}", content,
+                                  evidence=[{"source": "export", "title": title,
+                                             "origin": path or "content"}])
+    return {"draft_id": draft_id, "title": title, "status": "pending",
+            "note": "Review in Approvals; approving creates the Google Doc (needs drive.file)."}
+
+
 @router.post("/ask")
 async def ask(payload: dict) -> dict:
     """M2A: answer a question from SecondBrain only, with per-claim citations.

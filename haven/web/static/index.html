@@ -997,6 +997,7 @@ function renderAsk() {
     <div style="font-size:10.5px;color:var(--faint);margin-top:6px">Answers come only from the wiki, cited. If it's not in there, Haven says so.</div>
     ${r ? (r.answered
       ? `<div class="sec-title">Answer</div><div class="draft-box">${esc(r.answer)}</div>
+         <div style="margin-top:8px"><button class="btn btn-ghost" id="ask-export">→ Export answer to Google Doc</button></div>
          <div class="sec-title">Citations · ${r.citations.length}</div>
          ${r.citations.map(c => `<div class="evi"><div class="evi-l1"><span class="evi-cite">[${c.n}] ${esc(c.path)}#${esc(c.heading)}</span>${chip(c)}</div></div>`).join('')}`
       : `<div class="sec-title">No answer</div>
@@ -1009,6 +1010,18 @@ function renderAsk() {
   input.addEventListener('input', () => { state.ask.question = input.value; });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAsk(); });
   $('#ask-go').addEventListener('click', doAsk);
+  const exp = $('#ask-export');
+  if (exp) exp.addEventListener('click', async () => {
+    const q = (state.ask.question || '').slice(0, 80);
+    const body = state.ask.result.answer + '\n\nSources:\n'
+      + (state.ask.result.citations || []).map(c => `- ${c.path}#${c.heading}`).join('\n');
+    try {
+      const res = await api('/api/knowledge/export-doc', { method: 'POST',
+        body: JSON.stringify({ title: 'Haven answer: ' + q, content: body }) });
+      await fetchApprovals();
+      toast(`Google Doc export queued (draft #${res.draft_id}) — approve to create it`); render();
+    } catch (e) { toast('export failed: ' + e.message, true); }
+  });
   const flag = $('#ask-flag');
   if (flag) flag.addEventListener('click', async () => {
     try {

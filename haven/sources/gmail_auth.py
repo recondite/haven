@@ -24,10 +24,15 @@ from google_auth_oauthlib.flow import Flow
 # must be re-run once; /api/auth/gmail/status surfaces scopes_ok until then.
 # drive.readonly (GT-approved 2026-07-19, build plan v2 M6) lets the document
 # ingest read/export Google Docs the user links. Read-only: no create/edit/delete.
+# drive.file (GT-approved 2026-07-19) lets Haven create/edit ONLY the Docs it
+# makes — least privilege: it cannot see, edit, or delete the user's other Drive
+# files (that would need full 'drive', deliberately not requested). Delete is
+# never performed regardless (ground rule #1; executor has no delete verb).
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive.file",
 ]
 
 

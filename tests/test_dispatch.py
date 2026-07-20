@@ -173,8 +173,9 @@ def test_crash_mid_send_surfaces_needs_verify(sp, live):
 
 
 def test_transports_have_no_delete_verbs():
-    """Ground rule #1: outbound verbs are post + send-reply + wiki-write only."""
-    assert set(executor._TRANSPORTS) == {"slack", "email", "wiki"}
+    """Ground rule #1: outbound verbs are post/send/wiki-write/drive-write only —
+    all create-or-update, never delete."""
+    assert set(executor._TRANSPORTS) == {"slack", "email", "wiki", "drive"}
     src = inspect.getsource(executor)
     for banned in (".delete(", "chat.delete", "batchDelete", "messages.trash", ".trash(", "unlink", "rmtree"):
         assert banned not in src, f"executor source contains banned verb {banned!r}"
@@ -224,6 +225,70 @@ def test_wiki_ingest_writes_on_approve(sp, live, tmp_path, monkeypatch):
     did2 = sp.create_draft(job, "wiki", "wiki/concepts/cpo.md", _GOOD_WIKI)
     with pytest.raises(executor.ExecutorError):
         run(ex.approve(did2))
+
+
+# ─── drive write (M-drive / SIM-176) ─────────────────────
+class _FakeDrive:
+    """Minimal Drive service double recording create/update calls."""
+    def __init__(self):
+        self.calls = []
+    def files(self):
+        return self
+    def create(self, body=None, media_body=None, fields=None):
+        self.calls.append(("create", body["name"]))
+        return _FakeExec({"id": "newid1", "name": body["name"], "webViewLink": "http://doc/newid1"})
+    def update(self, fileId=None, media_body=None, fields=None):
+        self.calls.append(("update", fileId))
+        return _FakeExec({"id": fileId, "name": "edited", "webViewLink": "http://doc/" + fileId})
+
+
+class _FakeExec:
+    def __init__(self, r):
+        self._r = r
+    def execute(self):
+        return self._r
+
+
+def _wire_drive(sp, live, monkeypatch):
+    fake = _FakeDrive()
+    class FakeAuth:
+        async def get_drive_service(self):
+            return fake
+    import haven.deps
+    monkeypatch.setattr(haven.deps, "gmail_auth", FakeAuth())
+    monkeypatch.setitem(executor._TRANSPORTS, "drive", executor._drive_write)
+    return fake
+
+
+def test_drive_create_on_approve(sp, live, monkeypatch):
+    fake = _wire_drive(sp, live, monkeypatch)
+    job = sp.create_job("export", "cli", "export")
+    did = sp.create_draft(job, "drive", "new:Q3 Memo", "the doc body")
+    res = run(executor.approve(did))
+    assert res["status"] == "sent"
+    assert fake.calls == [("create", "Q3 Memo")]
+    assert sp.get_action_for_draft(did)["status"] == "sent"
+
+
+def test_drive_edit_existing_app_doc(sp, live, monkeypatch):
+    fake = _wire_drive(sp, live, monkeypatch)
+    job = sp.create_job("export", "cli", "export")
+    did = sp.create_draft(job, "drive", "file:existing99", "new body")
+    run(executor.approve(did))
+    assert fake.calls == [("update", "existing99")]
+
+
+def test_drive_unauthorized_marks_failed(sp, live, monkeypatch):
+    class FakeAuth:
+        async def get_drive_service(self):
+            return None
+    import haven.deps
+    monkeypatch.setattr(haven.deps, "gmail_auth", FakeAuth())
+    monkeypatch.setitem(executor._TRANSPORTS, "drive", executor._drive_write)
+    job = sp.create_job("export", "cli", "export")
+    did = sp.create_draft(job, "drive", "new:X", "body")
+    res = run(executor.approve(did))
+    assert res["status"] == "failed" and "not authorized" in res["result"]["error"]
 
 
 # ─── agent dispatch ──────────────────────────────────────

@@ -85,7 +85,9 @@
   .view-title{font-size:14.5px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
   .view-sub{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
   .top-counts{display:flex;gap:4px;margin-left:6px}
-  .count-pill{display:inline-flex;align-items:baseline;gap:5px;font-size:11px;color:var(--muted);padding:3px 8px;border-radius:6px;cursor:default}
+  .count-pill{display:inline-flex;align-items:baseline;gap:5px;font-size:11px;color:var(--muted);padding:3px 8px;border-radius:6px;cursor:pointer;border:1px solid transparent;user-select:none}
+  .count-pill[data-pill]:hover{border-color:var(--border-2)}
+  .count-pill.active{background:var(--accent-dim);border-color:var(--accent);color:var(--text)}
   .count-pill b{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text)}
   .count-pill.ar b{color:var(--err)} .count-pill.appr b{color:var(--warn)} .count-pill.reply b{color:var(--info)} .count-pill.watch b{color:var(--purple)}
   .top-right{margin-left:auto;display:flex;align-items:center;gap:8px}
@@ -101,11 +103,30 @@
   .src-pill.down{color:var(--err);border-color:rgba(248,81,73,.4)}
   .src-pill.off{opacity:.4;text-decoration:line-through}
   .src-pill.off .d{background:var(--faint)}
+  .src-pill .src-n{font-variant-numeric:tabular-nums;color:var(--faint);font-weight:700}
+  .src-pill .src-n.hot{color:var(--ok)}
+  .src-pill .src-t{font-variant-numeric:tabular-nums;color:var(--muted)}
+  .src-pill.srcall{font-weight:700;letter-spacing:.02em}
+  .src-pill.srcall.on{color:var(--accent-2);border-color:var(--accent)}
+  .src-pill.srcall.off{opacity:1;text-decoration:none;color:var(--muted)}
   .src-pill.soon{opacity:.45;cursor:default}
   .src-pill.soon .d{background:var(--faint)}
 
   .content{display:grid;grid-template-columns:minmax(0,1fr) 400px;min-height:0;flex:1}
   .content.single{grid-template-columns:minmax(0,1fr)}
+  .cmdbar{flex:none;border-bottom:1px solid var(--border);background:var(--bg2);padding:8px 14px;display:flex;flex-direction:column;gap:8px}
+  .cmdbar .cmd-row{display:flex;gap:8px;align-items:center}
+  .cmd-input{flex:1;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font:inherit;font-size:12.5px;outline:none}
+  .cmd-input:focus{border-color:var(--accent)}
+  .cmd-preview{background:var(--panel);border:1px solid var(--border-2);border-radius:8px;padding:10px 12px;font-size:12px}
+  .cmd-preview .cp-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .cmd-preview .cp-sum{color:var(--text);font-weight:600}
+  .cmd-preview .cp-n{color:var(--muted);font-variant-numeric:tabular-nums}
+  .cmd-preview .cp-list{max-height:150px;overflow-y:auto;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:8px}
+  .cmd-preview .cp-item{display:flex;gap:8px;padding:4px 0;color:var(--text-2);border-bottom:1px solid var(--border);font-size:11.5px}
+  .cmd-preview .cp-item:last-child{border-bottom:none}
+  .cmd-preview .cp-item .cp-age{margin-left:auto;color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
+  .cmd-preview .cp-actions{display:flex;gap:8px}
   .list-pane{overflow-y:auto;min-height:0;border-right:1px solid var(--border)}
   .content.single .list-pane{border-right:none}
   .detail-pane{overflow-y:auto;min-height:0;background:var(--bg2)}
@@ -126,7 +147,7 @@
     background:var(--panel-2,#161b26);border-bottom:1px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.25)}
   .bulkbar .bulkct{font-size:12px;font-weight:650;color:var(--accent);margin-right:4px}
   .row .ubar{position:absolute;left:0;top:5px;bottom:5px;width:3px;border-radius:2px}
-  .u-urgent .ubar{background:var(--err)} .u-high .ubar{background:var(--warn)} .u-med .ubar{background:var(--info)} .u-low .ubar{background:var(--faint)}
+  .u-watch .ubar{background:var(--purple)} .u-urgent .ubar{background:var(--err)} .u-high .ubar{background:var(--warn)} .u-med .ubar{background:var(--info)} .u-low .ubar{background:var(--faint)}
   .src-glyph{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:800;flex:none;letter-spacing:.02em}
   .sg-gmail{background:var(--err-dim);color:#ff8f88} .sg-slack{background:var(--purple-dim);color:var(--purple)}
   .sg-freshservice{background:var(--ok-dim);color:#6fd382} .sg-otter{background:var(--info-dim);color:#79b8ff}
@@ -159,7 +180,7 @@
   .btn{border:none;border-radius:7px;padding:7px 13px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;line-height:1.2;text-decoration:none}
   .btn:disabled{opacity:.45;cursor:not-allowed}
   .btn-primary{background:var(--accent);color:#fff} .btn-primary:hover:not(:disabled){background:var(--accent-2)}
-  .btn-ok{background:var(--ok);color:#04120a} .btn-ok:hover:not(:disabled){filter:brightness(1.12)}
+  .btn-ok{background:var(--ok-dim);color:var(--ok);border:1px solid rgba(63,185,80,.4)} .btn-ok:hover:not(:disabled){background:rgba(63,185,80,.22)}
   .btn-danger{background:var(--err-dim);color:var(--err);border:1px solid rgba(248,81,73,.4)} .btn-danger:hover:not(:disabled){background:rgba(248,81,73,.22)}
   .btn-ghost{background:var(--panel-2);color:var(--text-2);border:1px solid var(--border-2)} .btn-ghost:hover:not(:disabled){background:var(--raise);color:var(--text)}
   .dp-placeholder{padding:70px 26px;text-align:center;color:var(--faint);font-size:12.5px;line-height:2}
@@ -241,6 +262,10 @@
         <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 1.8l5.5 2.4v3.4c0 3.2-2.3 5.6-5.5 6.6-3.2-1-5.5-3.4-5.5-6.6V4.2L8 1.8z"/><path d="M5.6 8l1.7 1.7L10.6 6.4"/></svg></span>
         Approvals <span class="badge amber" id="badge-appr">–</span>
       </button>
+      <button class="nav-item" data-arnav="1" title="Open action-required items assigned to you">
+        <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.4"/><path d="M8 4.8v4.2"/><circle cx="8" cy="11.2" r=".5" fill="currentColor"/></svg></span>
+        AR <span class="badge" id="badge-ar">–</span>
+      </button>
       <button class="nav-item" data-view="ask">
         <span class="ni-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.4"/><path d="M6.2 6.2a1.9 1.9 0 1 1 2.6 1.8c-.6.25-.8.6-.8 1.2"/><circle cx="8" cy="11.4" r=".5" fill="currentColor"/></svg></span>
         Ask
@@ -288,10 +313,10 @@
         <div class="view-sub" id="view-sub">Action required across all sources</div>
       </div>
       <div class="top-counts">
-        <span class="count-pill ar" title="Action required"><b id="cnt-ar">–</b> AR</span>
-        <span class="count-pill appr" title="Pending draft approvals"><b id="cnt-appr">–</b> Approvals</span>
-        <span class="count-pill reply" title="Reply needed"><b id="cnt-reply">–</b> Reply</span>
-        <span class="count-pill watch" title="Watchlist matches"><b id="cnt-watch">–</b> Watch</span>
+        <span class="count-pill ar" data-pill="ar" title="Action required — click to filter the inbox"><b id="cnt-ar">–</b> AR</span>
+        <span class="count-pill appr" data-pill="approval" title="Needs your approval — click to filter the inbox"><b id="cnt-appr">–</b> Approve</span>
+        <span class="count-pill reply" data-pill="reply" title="Reply needed — click to filter the inbox"><b id="cnt-reply">–</b> Reply</span>
+        <span class="count-pill watch" data-pill="watch" title="Watchlist — click to filter the inbox"><b id="cnt-watch">–</b> Watch</span>
       </div>
       <div class="top-right">
         <span class="llm-pill" id="llm-pill" hidden><span class="d"></span><span id="llm-pill-txt"></span></span>
@@ -307,6 +332,15 @@
       <span class="dr-badge">DRY-RUN</span>
       Outbound sends are simulated — Approve logs the send, nothing leaves Haven.
       <span class="dr-note">Flip send mode in .env to go live.</span>
+    </div>
+
+    <div class="cmdbar" id="cmdbar" hidden>
+      <div class="cmd-row">
+        <input id="cmd-input" class="cmd-input" type="text" autocomplete="off"
+               placeholder="Command…  e.g.  archive everything from Coupa older than 2 days  ·  Enter to preview">
+        <button id="cmd-go" class="btn btn-primary">Plan</button>
+      </div>
+      <div class="cmd-preview" id="cmd-preview" hidden></div>
     </div>
 
     <div class="content" id="content">
@@ -357,6 +391,8 @@ const state = {
   llm: null, health: null,
   hideNoise: true, hideHandled: true,
   srcOff: new Set(),   // sources filtered OUT of the inbox (empty = show all)
+  pillFilter: null,    // active inbox pill filter: 'ar'|'approval'|'reply'|'watch'|null
+  cmd: { busy: false, plan: null },   // LLM command bar: last plan awaiting confirm
   editingDraft: null,  // draft id currently being edited in the approvals pane
   people: null, identityCoverage: null,  // People view (lazy-loaded)
   system: null,        // /api/system/state (send mode, stuck actions, backups)
@@ -397,11 +433,13 @@ function fmtEpoch(sec) {
   if (!sec) return '—';
   return new Date(sec * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
-const URG_ORDER = ['urgent', 'high', 'med', 'low'];
+// 'watch' is a display-only tier above urgent: any watchlist keyword hit lands
+// here (see normalize). It's never a raw urgency value from the backend.
+const URG_ORDER = ['watch', 'urgent', 'high', 'med', 'low'];
 function normUrg(u) {
   u = String(u || '').toLowerCase();
   if (u === 'medium') u = 'med';
-  return URG_ORDER.includes(u) ? u : 'low';
+  return ['urgent', 'high', 'med', 'low'].includes(u) ? u : 'low';
 }
 const KNOWN_TAGS = ['approval', 'action', 'fyi', 'travel', 'noise'];
 function normalize(source, raw) {
@@ -413,7 +451,7 @@ function normalize(source, raw) {
     subject: raw.subject || raw.summary || raw.snippet || '(no subject)',
     snippet: raw.snippet || raw.summary || '',
     tag: String(raw.tag || '').toLowerCase(),
-    urg: normUrg(raw.urgency),
+    urg: raw.watchlist_match ? 'watch' : normUrg(raw.urgency),
     ts: itemTs(raw),
     raw,
   };
@@ -438,8 +476,28 @@ function toggleSource(s) {
   toast(state.srcOff.size ? `Sources: ${SOURCES.filter(x => !state.srcOff.has(x)).join(', ')}` : 'Sources: all');
   render();
 }
-function orderedVisible() {
+function toggleAllSources() {
+  // All on -> hide everything (so you can re-show just the ones you want).
+  // Anything hidden -> show all. Bypasses toggleSource's all-off auto-reset.
+  if (state.srcOff.size === 0) SOURCES.forEach(s => state.srcOff.add(s));
+  else state.srcOff.clear();
+  toast(state.srcOff.size ? 'Sources: none — pick the ones to show' : 'Sources: all');
+  render();
+}
+// Inbox list = visible items narrowed by the active pill filter (counts stay on
+// the full visible set, so the pill numbers don't collapse when one is active).
+function inboxItems() {
   const v = visibleItems();
+  const f = state.pillFilter && PILL_FILTERS[state.pillFilter];
+  return f ? v.filter(f) : v;
+}
+// Open action-required items assigned to Garth (drives the left-nav AR badge),
+// independent of the hide-noise/handled toggles.
+function openARs() {
+  return allItems().filter(it => it.raw.action_required && !it.raw.handled_at && !isSnoozed(it));
+}
+function orderedVisible() {
+  const v = inboxItems();
   const out = [];
   for (const u of URG_ORDER) out.push(...v.filter(i => i.urg === u).sort((a, b) => b.ts - a.ts));
   return out;
@@ -516,9 +574,75 @@ const VIEW_KEYS = ['inbox', 'approvals', 'ask', 'ingest', 'people', 'system'];
 document.querySelectorAll('.nav-item[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
 function setView(v) {
   state.view = v;
-  document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.toggle('active', n.dataset.view === v));
+  if (v === 'inbox') state.pillFilter = null;   // plain Inbox nav = unfiltered
   render();
 }
+// Inbox pill filters (topbar AR/Approve/Reply/Watch + left-nav AR entry).
+const PILL_FILTERS = {
+  ar: it => !!it.raw.action_required,
+  approval: it => it.tag === 'approval',
+  reply: it => !!it.raw.reply_needed,
+  watch: it => !!it.raw.watchlist_match,
+};
+function togglePill(key) {
+  state.pillFilter = state.pillFilter === key ? null : key;
+  state.view = 'inbox';
+  render();
+}
+document.querySelectorAll('.count-pill[data-pill]').forEach(p =>
+  p.addEventListener('click', () => togglePill(p.dataset.pill)));
+document.querySelector('[data-arnav]').addEventListener('click', () => {
+  state.pillFilter = 'ar'; state.view = 'inbox'; render();
+});
+
+/* ===== LLM command bar: NL -> plan -> preview -> confirm -> execute ===== */
+async function cmdPlan() {
+  const text = $('#cmd-input').value.trim();
+  if (!text || state.cmd.busy) return;
+  state.cmd.busy = true; renderCmdPreview('Planning…');
+  try {
+    state.cmd.plan = await api('/api/command/plan', { method: 'POST', body: JSON.stringify({ text }) });
+  } catch (e) { state.cmd.plan = null; toast('Plan failed: ' + e.message, true); }
+  state.cmd.busy = false; renderCmdPreview();
+}
+function renderCmdPreview(loading) {
+  const box = $('#cmd-preview');
+  if (!box) return;
+  if (loading) { box.hidden = false; box.innerHTML = `<span class="cp-sum">${esc(loading)}</span>`; return; }
+  const p = state.cmd.plan;
+  if (!p) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  const CAP = 50;
+  const shown = p.matches.slice(0, CAP);
+  const rows = shown.map(m => `<div class="cp-item">${glyph(m.source)}<b>${esc(m.sender || '')}</b> <span style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.subject || '')}</span><span class="cp-age">${m.age_days != null ? m.age_days + 'd' : ''}</span></div>`).join('')
+    + (p.count > CAP ? `<div class="cp-item" style="color:var(--muted)">+${p.count - CAP} more…</div>` : '');
+  const doneBtn = p.action === 'done'
+    ? `<button class="btn btn-ok" id="cmd-confirm" ${p.count ? '' : 'disabled'}>Mark ${p.count} done (read + archive in Gmail)</button>` : '';
+  box.innerHTML = `
+    <div class="cp-head"><span class="cp-sum">${esc(p.summary || (p.action === 'done' ? 'Mark matched items done' : 'Search'))}</span><span class="cp-n">${p.count} match${p.count === 1 ? '' : 'es'}</span></div>
+    ${p.count ? `<div class="cp-list">${rows}</div>` : '<div style="color:var(--muted);margin-bottom:8px">Nothing matched.</div>'}
+    <div class="cp-actions">${doneBtn}<button class="btn btn-ghost" id="cmd-cancel">${p.action === 'done' ? 'Cancel' : 'Close'}</button></div>`;
+  const cf = $('#cmd-confirm'); if (cf) cf.addEventListener('click', cmdExecute);
+  $('#cmd-cancel').addEventListener('click', () => { state.cmd.plan = null; renderCmdPreview(); });
+}
+async function cmdExecute() {
+  const p = state.cmd.plan;
+  if (!p || p.action !== 'done') return;
+  const items = p.matches.map(m => ({ source: m.source, msg_id: m.msg_id }));
+  const btn = $('#cmd-confirm'); if (btn) { btn.disabled = true; btn.textContent = 'Working…'; }
+  try {
+    const res = await api('/api/command/execute', { method: 'POST', body: JSON.stringify({ action: 'done', items }) });
+    toast(`Marked ${res.done} done`);
+    state.cmd.plan = null; $('#cmd-input').value = '';
+    await Promise.all(SOURCES.map(fetchItems));
+    render();
+  } catch (e) {
+    toast('Execute failed: ' + e.message, true);
+    if (btn) { btn.disabled = false; btn.textContent = `Mark ${p.count} done`; }
+  }
+}
+$('#cmd-go').addEventListener('click', cmdPlan);
+$('#cmd-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); cmdPlan(); } });
 
 $('#sw-noise').addEventListener('click', () => toggleFilter('noise'));
 $('#sw-handled').addEventListener('click', () => toggleFilter('handled'));
@@ -566,6 +690,8 @@ function renderChrome() {
   $('#forced-banner').hidden = !forced;
   if (forced) $('#forced-reason').textContent = forced;
   $('#content').classList.toggle('single', state.view === 'system' || state.view === 'ask' || state.view === 'ingest');
+  $('#cmdbar').hidden = state.view !== 'inbox';   // LLM command bar lives on the inbox
+  if (state.view === 'inbox' && !state.cmd.busy) renderCmdPreview();
 
   // badges + counts — counted by thread, matching the collapsed inbox rows
   const vis = visibleItems();
@@ -576,9 +702,22 @@ function renderChrome() {
   $('#badge-appr').textContent = pend;
   $('#badge-appr').classList.toggle('amber', pend > 0);
   $('#cnt-ar').textContent = vis.filter(i => i.raw.action_required).length;
-  $('#cnt-appr').textContent = pend;
+  $('#cnt-appr').textContent = vis.filter(i => i.tag === 'approval').length;
   $('#cnt-reply').textContent = vis.filter(i => i.raw.reply_needed).length;
   $('#cnt-watch').textContent = vis.filter(i => i.raw.watchlist_match).length;
+
+  // Left-nav AR badge = open action-required load (not affected by view/toggles).
+  const arOpen = openARs().length;
+  $('#badge-ar').textContent = arOpen;
+  $('#badge-ar').classList.toggle('hot', arOpen > 0);
+
+  // Nav + pill active state (AR nav wins over Inbox when the AR filter is on).
+  const arActive = state.view === 'inbox' && state.pillFilter === 'ar';
+  document.querySelectorAll('.nav-item[data-view]').forEach(n =>
+    n.classList.toggle('active', n.dataset.view === state.view && !(n.dataset.view === 'inbox' && arActive)));
+  document.querySelector('[data-arnav]').classList.toggle('active', arActive);
+  document.querySelectorAll('.count-pill[data-pill]').forEach(p =>
+    p.classList.toggle('active', state.pillFilter === p.dataset.pill));
 
   // env badge (dry-run vs live)
   const env = $('#env-badge');
@@ -596,15 +735,23 @@ function renderChrome() {
     lp.title = `Active LLM runtime: ${state.llm.runtime}${state.llm.local_base_url ? ' @ ' + state.llm.local_base_url : ''} — ${avail ? 'reachable' : 'UNREACHABLE'}`;
   } else { lp.hidden = true; }
 
-  // source pills — clickable filters: click toggles a source in/out of the inbox
-  $('#src-pills').innerHTML = SOURCES.map(s2 => {
+  // source pills — clickable filters + per-source counts (green = unread/not yet
+  // handled, gray = total; noise excluded). Leading "All" pill toggles every
+  // source on/off so you can hide all then re-show just the ones you want.
+  const allOn = state.srcOff.size === 0;
+  const allPill = `<span class="src-pill srcall ${allOn ? 'on' : 'off'}" data-srcall="1" title="${allOn ? 'Hide all sources (then click the ones you want)' : 'Show all sources'}">All</span>`;
+  $('#src-pills').innerHTML = allPill + SOURCES.map(s2 => {
     const a = state.auth[s2];
     const ok = a && a.authed;
     const off = state.srcOff.has(s2);
-    return `<span class="src-pill ${ok ? '' : 'down'} ${off ? 'off' : ''}" data-srcpill="${s2}" title="${esc(SRC[s2].label)} — ${ok ? 'authorized' : 'not authorized'}${off ? ' · hidden from inbox (click to show)' : ' · click to filter'}"><span class="d"></span>${esc(SRC[s2].label)}</span>`;
+    const its = state.items[s2] || [];
+    const tot = its.filter(i => i.tag !== 'noise').length;
+    const unr = its.filter(i => i.tag !== 'noise' && !i.raw.handled_at).length;
+    return `<span class="src-pill ${ok ? '' : 'down'} ${off ? 'off' : ''}" data-srcpill="${s2}" title="${esc(SRC[s2].label)} — ${ok ? 'authorized' : 'not authorized'} · ${unr} unread / ${tot} total${off ? ' · hidden (click to show)' : ' · click to hide'}"><span class="d"></span>${esc(SRC[s2].label)} <b class="src-n ${unr ? 'hot' : ''}">${unr}</b><span class="src-t">/${tot}</span></span>`;
   }).join('') + `<span class="src-pill soon"><span class="d"></span>JIRA</span>`;
   $('#src-pills').querySelectorAll('[data-srcpill]').forEach(p =>
     p.addEventListener('click', () => toggleSource(p.dataset.srcpill)));
+  $('#src-pills').querySelector('[data-srcall]').addEventListener('click', toggleAllSources);
 
   // footer counts
   const total = allItems().length;
@@ -643,12 +790,13 @@ function render() {
 
 /* ---------- INBOX ---------- */
 const GROUPS = [
+  { key: 'watch', label: 'Watchlist', dot: 'var(--purple)' },
   { key: 'urgent', label: 'Urgent', dot: 'var(--err)' },
   { key: 'high', label: 'High', dot: 'var(--warn)' },
   { key: 'med', label: 'Medium', dot: 'var(--info)' },
   { key: 'low', label: 'Low / FYI', dot: 'var(--faint)' },
 ];
-const URG_RANK = { urgent: 3, high: 2, med: 1, low: 0 };
+const URG_RANK = { watch: 4, urgent: 3, high: 2, med: 1, low: 0 };
 const TAG_RANK = { approval: 4, action: 3, travel: 2, fyi: 1, noise: 0 };
 // Collapse messages of the same Gmail thread into one entry. Representative =
 // the highest-priority message (urgency, then tag, then newest), so a thread
@@ -693,7 +841,7 @@ function rowHTML(it, count = 1) {
   </div>`;
 }
 function renderInbox() {
-  const groups = threadGroups(visibleItems());
+  const groups = threadGroups(inboxItems());
   let h = '';
   for (const g of GROUPS) {
     const rows = groups.filter(gr => gr.rep.urg === g.key).sort((a, b) => b.rep.ts - a.rep.ts);
@@ -824,9 +972,9 @@ function renderItemDetail() {
         if (r.handled_at) return `<button class="btn btn-ghost" data-act="undone">↩ Unmark done</button>`;
         const tsize = threadSize(it);
         return canThread && tsize > 1
-          ? `<button class="btn btn-ok" data-act="done-thread" title="Resolve all ${tsize} messages in this thread">✓ Done · whole thread (${tsize})</button>
+          ? `<button class="btn btn-ok" data-act="done-thread" title="Resolve all ${tsize} messages in this thread">Done · whole thread (${tsize})</button>
              <button class="btn btn-ghost" data-act="done" title="Mark only this message done">just this msg</button>`
-          : `<button class="btn btn-ok" data-act="done">✓ Done</button>`;
+          : `<button class="btn btn-ok" data-act="done">Done</button>`;
       })()}
       <button class="btn btn-ghost" data-act="snooze1h">Snooze 1h</button>
       <button class="btn btn-ghost" data-act="snoozetmrw">Tomorrow</button>
@@ -836,7 +984,8 @@ function renderItemDetail() {
         : `<button class="btn btn-ghost" data-act="linear">▤ Capture to Linear</button>`}
       <button class="btn btn-primary" data-act="draft" ${canDraftReply ? '' : 'disabled title="Draft agents for this source ship soon — Slack + Gmail for now"'}>✎ Draft reply${canDraftReply ? '' : ' (soon)'}</button>
       <button class="btn btn-ghost" data-act="secondbrain" title="Draft this item into SecondBrain — review in Approvals before it writes">→ SecondBrain</button>
-      ${it.source === 'gmail' ? `<button class="btn btn-ghost" data-act="eval" title="Confirm this item's tag/urgency as a golden eval case">＋ Eval case</button>` : ''}
+      ${it.source === 'gmail' ? `<button class="btn btn-ghost" data-act="eval" title="Confirm this item's tag/urgency as a golden eval case">＋ Eval case</button>
+      <button class="btn btn-ghost" data-act="eval-wrong" title="Scoring is wrong — set the correct tag/urgency and save that as the golden case">－ Wrong</button>` : ''}
     </div>
   </div>`;
   dp.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => itemAction(it, b.dataset.act)));
@@ -889,6 +1038,19 @@ async function itemAction(it, act) {
       const res = await api('/api/eval/promote', { method: 'POST',
         body: JSON.stringify({ source: it.source, msg_id: it.id, tag: r.tag, urgency: r.urgency }) });
       toast(`Added to eval set (${res.total_promoted} promoted) — tag=${r.tag}/${r.urgency}`);
+    } else if (act === 'eval-wrong') {
+      // Scoring is wrong — capture the CORRECT tag/urgency as the golden case
+      // (same endpoint; it stores whatever label we send, not the LLM's).
+      const tag = (prompt(`Correct tag? (${KNOWN_TAGS.join(' / ')})\nLLM said: ${r.tag || '—'}`, r.tag || '') || '').trim().toLowerCase();
+      if (!tag) return;
+      if (!KNOWN_TAGS.includes(tag)) return toast(`Invalid tag "${tag}"`, true);
+      let urg = (prompt(`Correct urgency? (${URG_ORDER.slice(1).join(' / ')})\nLLM said: ${r.urgency || '—'}`, normUrg(r.urgency)) || '').trim().toLowerCase();
+      if (!urg) return;
+      if (urg === 'medium') urg = 'med';
+      if (!URG_ORDER.slice(1).includes(urg)) return toast(`Invalid urgency "${urg}"`, true);
+      const res = await api('/api/eval/promote', { method: 'POST',
+        body: JSON.stringify({ source: it.source, msg_id: it.id, tag, urgency: urg }) });
+      toast(`Corrected → eval set (${res.total_promoted} promoted) — tag=${tag}/${urg}`);
     }
   } catch (e) { toast(act + ' failed: ' + e.message, true); }
 }

@@ -25,7 +25,10 @@ class FakeRuntime(runtime.Runtime):
         return {"tag": "fyi", "urgency": "low"}
 
 
-def test_eval_reports_accuracy():
+def test_eval_reports_accuracy(monkeypatch):
+    # Isolate from any promoted cases on disk (data/state/eval-cases.json) so the
+    # count is deterministic — run_eval scores GOLDEN + promoted.
+    monkeypatch.setattr(eval_mod, "load_promoted", lambda: [])
     res = run(eval_mod.run_eval(FakeRuntime()))
     assert res["n"] == len(eval_mod.GOLDEN)
     # exactly one tag correct (the first case), unless another case's expected is fyi/low

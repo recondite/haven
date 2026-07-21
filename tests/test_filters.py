@@ -52,6 +52,26 @@ class TestWatchlistMatch:
         monkeypatch.setattr(filters, "_load_watchlist_raw", lambda: ["clearsulting"])
         assert filters.watchlist_match(sender_email="josh@clearsulting.com") == "clearsulting"
 
+    def test_domain_prefix_substring(self, monkeypatch):
+        # "ayar" should still catch "ayarlabs.com" (domain substring, prefix ok).
+        monkeypatch.setattr(filters, "_load_watchlist_raw", lambda: ["ayar"])
+        assert filters.watchlist_match(sender_email="x@ayarlabs.com") == "ayar"
+
+    def test_local_part_gibberish_no_false_positive(self, monkeypatch):
+        # "JLL" buried in a random no-reply local part must NOT match.
+        monkeypatch.setattr(filters, "_load_watchlist_raw", lambda: ["JLL"])
+        assert filters.watchlist_match(
+            subject="You are out of seats for your Claude Team plan",
+            sender_email="no-reply-fchcfojll7yiqstyifvioa@mail.anthropic.com",
+            sender_domain="mail.anthropic.com",
+            sender_name="Anthropic",
+        ) is None
+
+    def test_real_jll_domain_matches(self, monkeypatch):
+        # But a genuine JLL sender (own domain) still matches.
+        monkeypatch.setattr(filters, "_load_watchlist_raw", lambda: ["JLL"])
+        assert filters.watchlist_match(sender_email="broker@jll.com") == "JLL"
+
     def test_no_match(self, monkeypatch):
         monkeypatch.setattr(filters, "_load_watchlist_raw", lambda: ["xyz"])
         assert filters.watchlist_match(subject="hello", sender_email="a@b.com") is None
@@ -372,6 +392,7 @@ class TestUrgentApprovals:
     CFG = {
         "urgent_approvals": {
             "domains": ["coupahost.com", "coupa.com"],
+            "approval_senders": ["approvals"],
             "subject_patterns": [
                 r"\bapprov",
                 r"\baction required\b",
@@ -403,6 +424,28 @@ class TestUrgentApprovals:
         })
         assert decision == Decision.ACCEPT
         assert flags.get("is_priority_approval") is True
+
+    def test_coupa_approvals_mailbox_flagged_regardless_of_subject(self, monkeypatch):
+        # Real Coupa case: approvals@<tenant>.coupahost.com is always an approval
+        # request, even if the subject has no approval keyword.
+        _set_config(monkeypatch, self.CFG)
+        decision, _, flags = filters.apply_filter({
+            "sender_email": "approvals@ayarlabs.coupahost.com",
+            "sender_domain": "ayarlabs.coupahost.com",
+            "subject": "Invoice #2735811145 for Amazon Web Services, Inc.",
+        })
+        assert decision == Decision.ACCEPT
+        assert flags.get("is_priority_approval") is True
+
+    def test_approvals_mailbox_wrong_domain_not_flagged(self, monkeypatch):
+        # approval_senders only applies within a configured urgent_approvals domain.
+        _set_config(monkeypatch, self.CFG)
+        _, _, flags = filters.apply_filter({
+            "sender_email": "approvals@randomvendor.com",
+            "sender_domain": "randomvendor.com",
+            "subject": "Invoice #999",
+        })
+        assert flags.get("is_priority_approval") is not True
 
     def test_coupa_status_notice_not_flagged(self, monkeypatch):
         # No approval language -> not a priority approval (poll won't pin urgent).

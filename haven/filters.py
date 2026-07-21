@@ -187,14 +187,16 @@ def watchlist_match(
     """Return the first watchlist keyword that matches subject or sender info.
 
     Matching strategy:
-      - subject: case-insensitive **whole-word** match (`\\b<kw>\\b`). Whole-word
-        keeps a keyword like "permit" from matching "supermarket". Add variants
-        ("permits", "permitted") explicitly if you want them too.
-      - sender_email / sender_domain / sender_name: case-insensitive **substring**
-        match. So a watchlist entry of "clearsulting" matches
-        "josh.bartucci@clearsulting.com" (and the bare domain). That's the
-        intent for company/vendor watchlists — list the brand once and every
-        variant address from that vendor is caught.
+      - subject and email **local part**: case-insensitive **whole-word** match
+        (`\\b<kw>\\b`). Whole-word keeps "permit" from matching "supermarket" and,
+        critically, keeps a short keyword like "JLL" from matching the random
+        local part of a no-reply address
+        (`no-reply-fchcfojll7...@mail.anthropic.com`).
+      - sender **domain** + **name**: case-insensitive **substring** match. So a
+        watchlist entry of "clearsulting" matches "josh@clearsulting.com" (and the
+        bare domain), and "ayar" catches "ayarlabs.com". That's the intent for
+        company/vendor watchlists — list the brand once and every variant address
+        from that vendor is caught.
 
     Returns the first matching keyword (in watchlist insertion order) or None.
     """
@@ -202,21 +204,22 @@ def watchlist_match(
     if not kws:
         return None
 
-    sender_blob = " ".join(
-        s for s in (sender_email, sender_domain, sender_name) if s
-    ).lower()
+    local, _, email_domain = (sender_email or "").lower().partition("@")
+    # Substring targets: the domain (from either arg) and the display name.
+    loose_blob = " ".join(
+        s for s in (sender_domain.lower(), email_domain, sender_name.lower()) if s
+    )
 
     for kw in kws:
         kw_lc = kw.lower()
-        # Subject: whole-word match (false-positive avoidance).
-        if subject:
-            try:
-                if re.search(rf"\b{re.escape(kw)}\b", subject, re.IGNORECASE):
-                    return kw
-            except re.error:
-                pass
-        # Sender info: substring match (partial allowed).
-        if sender_blob and kw_lc in sender_blob:
+        pat = re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE)
+        # Subject + email local part: whole-word (no gibberish false positives).
+        if subject and pat.search(subject):
+            return kw
+        if local and pat.search(local):
+            return kw
+        # Domain + name: substring (partial/prefix allowed).
+        if loose_blob and kw_lc in loose_blob:
             return kw
     return None
 
@@ -250,14 +253,21 @@ def travel_match(
     return None
 
 
-def urgent_approval_match(cfg: dict, subject: str = "", sender_domain: str = "") -> str | None:
+def urgent_approval_match(
+    cfg: dict, subject: str = "", sender_domain: str = "", sender_email: str = ""
+) -> str | None:
     """Return a reason if this is a priority approval request that must always be
     surfaced as URGENT, else None.
 
-    Matches when the sender domain ends with a configured `urgent_approvals`
-    domain AND the subject matches one of its approval `subject_patterns` (so a
-    Coupa *status* notice like "PO received" — no approval language — is NOT
-    swept in). The poll pipeline pins tag="approval", urgency="urgent" on the
+    Requires the sender domain to end with a configured `urgent_approvals` domain,
+    then matches on EITHER:
+      - the sender mailbox (local part) being in `approval_senders` — a mailbox
+        that only ever sends approval requests (Coupa's `approvals@`), so the
+        subject wording is irrelevant and can never cause a miss; OR
+      - the subject matching one of the approval `subject_patterns` (so a Coupa
+        *status* notice like "PO received" — no approval language — is NOT swept
+        in).
+    The poll pipeline pins tag="approval", urgency="urgent" on the
     is_priority_approval flag.
     """
     ua = cfg.get("urgent_approvals") or {}
@@ -266,6 +276,10 @@ def urgent_approval_match(cfg: dict, subject: str = "", sender_domain: str = "")
     domain_ok = bool(sd and domains and any(sd == d or sd.endswith("." + d) for d in domains))
     if not domain_ok:
         return None
+    # Sender-mailbox rule: subject-independent, so wording changes can't cause a miss.
+    local = (sender_email or "").split("@", 1)[0].lower()
+    if local and local in _lower_set(ua.get("approval_senders")):
+        return f"approval sender ({sender_email})"
     for pattern in ua.get("subject_patterns") or []:
         try:
             if re.search(pattern, subject or "", re.IGNORECASE):
@@ -357,7 +371,9 @@ def apply_filter(payload: dict[str, Any]) -> tuple[str, str, dict]:
     # addresses, so they must be caught here — before never_keep and the reject
     # sender_patterns — or they'd be dropped as noise. The poll pipeline pins
     # tag="approval" and urgency="urgent" on the is_priority_approval flag.
-    approval_reason = urgent_approval_match(cfg, subject=subject, sender_domain=sender_domain)
+    approval_reason = urgent_approval_match(
+        cfg, subject=subject, sender_domain=sender_domain, sender_email=sender
+    )
     if approval_reason:
         flags["is_priority_approval"] = True
         return Decision.ACCEPT, approval_reason, flags

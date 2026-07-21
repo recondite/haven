@@ -8,6 +8,11 @@ poll_seconds: 300
 # in the UI, or by hand in Gmail) out of Haven entirely.
 queries:
   - "is:unread is:important in:inbox -label:ignore"
+  # Coupa approval requests aren't reliably flagged is:important by Gmail, so the
+  # main query misses them. Pull them explicitly — every mail from the Coupa
+  # `approvals@` mailbox is an approval asking for Garth's sign-off. Tenant-
+  # specific address; update if the Coupa subdomain changes.
+  - "from:approvals@ayarlabs.coupahost.com is:unread in:inbox -label:ignore"
 
 # ─── Never-keep (top priority — beats every accept rule) ────
 # Patterns here always reject, even from Ayar people. Use for "structural" noise
@@ -300,6 +305,11 @@ urgent_approvals:
   domains:
     - coupahost.com
     - coupa.com
+  # Sender mailboxes (local part before @) that ALWAYS mean "approval request",
+  # regardless of subject wording — so a Coupa subject-line change can never
+  # cause a real approval to be missed. Must also match a domain above.
+  approval_senders:
+    - approvals
   subject_patterns:
     - "\\bapprov"            # approve / approval / approver / approvals
     - "\\baction required\\b"

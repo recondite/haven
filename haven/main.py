@@ -26,6 +26,7 @@ from haven import config
 from haven.deps import gmail_auth
 from haven.events import bus
 from haven.routers import (
+    command,
     contacts,
     dispatch,
     docs,
@@ -320,6 +321,7 @@ async def sse_stream():
 
 
 # ─── Routers ─────────────────────────────────────────────
+app.include_router(command.router)
 app.include_router(gmail.router)
 app.include_router(slack.router)
 app.include_router(freshservice.router)

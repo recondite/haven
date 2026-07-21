@@ -79,6 +79,10 @@ async def slack_poll(force: bool = False) -> dict:
         raise HTTPException(400, "Slack not authorized — SLACK_USER_TOKEN missing in .env")
 
     fetcher = SlackFetcher()
+    if force:
+        # Re-scan the full lookback: drop the DM search floor before fetching so
+        # fetch_dms doesn't start from the recent steady-state cursor.
+        cursor_store.set_cursor("slack", "dm_search_floor", "")
     try:
         slack_msgs = await fetcher.fetch_all()
     except Exception as e:

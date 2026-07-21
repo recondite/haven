@@ -106,6 +106,18 @@ TRAVEL (tag = travel):
   Garth to do something (e.g. confirm a change, complete check-in by a deadline).
 - A human asking Garth to *book* or *approve* travel is action/approval, not travel.
 
+APPROVAL (tag = approval) — RESERVED for when Garth is the approver and must act:
+- Use tag=approval ONLY when Garth personally must approve / reject / sign something
+  routed to HIM: a requisition/PO/expense/spend approval awaiting his sign-off, an
+  employee request needing his approval, a contract/document sent for his signature.
+  Always set action_required=true for these.
+- NOT approval — demote these to fyi (or noise if automated/context-less), with
+  action_required=false:
+  * "<X> was approved / rejected / fully approved / completed" confirmations after the fact.
+  * Approval requests where someone ELSE is the approver and Garth is only cc'd/informed.
+  * Approval-workflow digests / status roll-ups.
+  A message is only an approval if the ball is in Garth's court right now.
+
 GOOGLE WORKSPACE / DOCUSIGN / SERVICE NOTIFICATIONS — body content matters:
 - "<Person> shared a document with you" / "You've been added to a shared drive" → if the sharer is at ayarlabs.com or a known approved external contact, tag = action (Garth needs to use the doc). Otherwise depends on context.
 - DocuSign "<Person> sent you a document to sign" → if from Ayar or known external partner, tag = approval, urgency = high (signature blocks workflow).
@@ -149,6 +161,18 @@ def _coerce(value: Any, valid: set[str], fallback: str) -> str:
     return s if s in valid else fallback
 
 
+def _tighten_approval(score: dict[str, Any]) -> dict[str, Any]:
+    """SIM-182: "approval" is reserved for items Garth must personally act on
+    (approve / reject / sign). Approval-workflow FYIs — "X was approved" notices,
+    or requests routed to someone else where he's only cc'd — are not his AR, so
+    demote them to fyi. Keeps the "Approve" count == needs-my-approval. The Coupa
+    deterministic path (is_priority_approval) re-pins tag/action after this in the
+    poll pipeline, so genuine priority approvals are unaffected."""
+    if score.get("tag") == "approval" and not score.get("action_required"):
+        score["tag"] = "fyi"
+    return score
+
+
 async def score_email(item: GmailItem) -> dict[str, Any]:
     prompt = build_email_prompt(item)
     try:
@@ -160,7 +184,7 @@ async def score_email(item: GmailItem) -> dict[str, Any]:
         return {**DEFAULT_SCORE, "score_error": str(e)[:300]}
 
     try:
-        return {
+        return _tighten_approval({
             "tag": _coerce(result.get("tag"), VALID_TAGS, "fyi"),
             "urgency": _coerce(result.get("urgency"), VALID_URGENCY, "low"),
             "action_required": bool(result.get("action_required", False)),
@@ -169,7 +193,7 @@ async def score_email(item: GmailItem) -> dict[str, Any]:
             "summary": str(result.get("summary", ""))[:200],
             "suggested_action": str(result.get("suggested_action", ""))[:120],
             "suggested_reply": str(result.get("suggested_reply", ""))[:400],
-        }
+        })
     except Exception as e:
         log.warning("Score parse failed for %s: %s (raw=%r)", item.msg_id, e, result)
         return {**DEFAULT_SCORE, "score_error": f"parse: {e}"}
@@ -262,6 +286,11 @@ URGENCY GUIDANCE:
   - Messages from the watched-user (CEO Mark Wade) default to >= med
   - #elt-2026 messages: >= med (ELT context — never bury)
 
+APPROVAL TAGGING:
+  - tag=approval ONLY when Garth personally must approve/reject/sign off on something
+    addressed to him right now (set action_required=true). "X was approved" notices,
+    or approvals routed to someone else → fyi, action_required=false.
+
 NOISE TAGGING (be conservative — don't over-noise things in #elt-2026 or DMs):
   - tag=noise for: pure automated bot summaries, GIF-only/emoji-only replies,
     "got it" / "thanks" acknowledgments with no further content,
@@ -291,7 +320,7 @@ async def score_slack(item: dict) -> dict[str, Any]:
         return {**DEFAULT_SCORE, "score_error": str(e)[:300]}
 
     try:
-        return {
+        return _tighten_approval({
             "tag": _coerce(result.get("tag"), VALID_TAGS, "fyi"),
             "urgency": _coerce(result.get("urgency"), VALID_URGENCY, "low"),
             "action_required": bool(result.get("action_required", False)),
@@ -300,7 +329,7 @@ async def score_slack(item: dict) -> dict[str, Any]:
             "summary": str(result.get("summary", ""))[:200],
             "suggested_action": str(result.get("suggested_action", ""))[:120],
             "suggested_reply": str(result.get("suggested_reply", ""))[:400],
-        }
+        })
     except Exception as e:
         log.warning("Slack score parse failed for %s: %s (raw=%r)", msg_id, e, result)
         return {**DEFAULT_SCORE, "score_error": f"parse: {e}"}

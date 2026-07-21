@@ -32,3 +32,6 @@ Thumbs.db
 
 .claude/
 
+
+# Secret/scratch backups
+*.bak

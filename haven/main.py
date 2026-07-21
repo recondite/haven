@@ -35,6 +35,7 @@ from haven.routers import (
     gmail,
     identity,
     items,
+    jira,
     knowledge,
     otter,
     slack,
@@ -87,7 +88,7 @@ async def _scheduled_poll_loop(name: str, poll_fn, poll_seconds: int) -> None:
         name, poll_seconds, config.QUIET_HOURS_START, config.QUIET_HOURS_END,
     )
     # Stagger initial polls so all sources don't hammer simultaneously at startup.
-    initial_delay = {"gmail": 5, "slack": 20, "freshservice": 35, "otter": 50}.get(name, 15)
+    initial_delay = {"gmail": 5, "slack": 20, "freshservice": 35, "otter": 50, "jira": 65}.get(name, 15)
     await asyncio.sleep(initial_delay)
     while True:
         try:
@@ -129,6 +130,7 @@ async def lifespan(app: FastAPI):
         ("slack", "slack.yaml", 300, lambda: slack.slack_poll()),
         ("freshservice", "freshservice.yaml", 3600, lambda: freshservice.freshservice_poll()),
         ("otter", "otter.yaml", 1800, lambda: otter.otter_poll()),
+        ("jira", "jira.yaml", 900, lambda: jira.jira_poll()),
     ]
     for name, yaml_name, default_secs, poll_fn in sources:
         secs, enabled = _read_poll_seconds(yaml_name, default_secs)
@@ -325,6 +327,7 @@ app.include_router(command.router)
 app.include_router(gmail.router)
 app.include_router(slack.router)
 app.include_router(freshservice.router)
+app.include_router(jira.router)
 app.include_router(otter.router)
 app.include_router(wiki.router)
 app.include_router(contacts.router)

@@ -175,3 +175,49 @@ def test_add_empty_note_rejected(sp):
     jeff = sp.person_by_email("jeff@ayarlabs.com")
     with pytest.raises(ValueError):
         sp.add_note(jeff["id"], "   ")
+
+
+# ─── bio_fields (person page) ────────────────────────────
+
+def test_bio_fields_parses_page():
+    body = """# Jeffrey Cotter
+
+**Title:** Principal, Analytics PM
+**Department:** [[data]] (Data)
+**Division:** [[engineering]] (Engineering)
+**Manager:** [[garth-thompson]] Garth Thompson
+**Hire date:** 08/29/2022
+**Birthday:** March 14
+**Location:** Remote - Delaware
+**Work email:** jeff@ayarlabs.com
+"""
+    b = identity.bio_fields(body)
+    assert b["title"] == "Principal, Analytics PM"
+    assert b["hire_date"] == "08/29/2022"
+    assert b["birthday"] == "March 14"
+    assert b["location"] == "Remote - Delaware"
+    assert b["manager"] == "Garth Thompson"          # trailing display text
+    assert b["team"] == "Engineering"                # division wins, parens stripped
+
+
+def test_bio_manager_humanizes_bare_wikilink():
+    b = identity.bio_fields("# X\n\n**Manager:** [[garth-thompson]]\n")
+    assert b["manager"] == "Garth Thompson"          # slug humanized when no display text
+
+
+def test_bio_fields_team_falls_back_to_department():
+    b = identity.bio_fields("# X\n\n**Department:** (IT)\n")
+    assert b["team"] == "IT"
+    assert b["division"] is None
+
+
+def test_bio_fields_missing_birthday_is_none():
+    b = identity.bio_fields("# X\n\n**Title:** Engineer\n")
+    assert b["birthday"] is None
+    assert b["hire_date"] is None
+    assert b["title"] == "Engineer"
+
+
+def test_bio_fields_empty_body():
+    b = identity.bio_fields(None)
+    assert all(b[k] is None for k in ("title", "birthday", "hire_date", "team"))

@@ -90,8 +90,16 @@ async def rollup(person_id: int) -> dict:
     sb_page = person.get("secondbrain_page")
     sb_body = knowledge.get_page(f"wiki/entities/people/{sb_page}.md") if sb_page else None
 
+    # Bio block from the SecondBrain page, with the person record as fallback.
+    bio = identity.bio_fields(sb_body)
+    bio["name"] = person.get("name")
+    bio["title"] = bio.get("title") or person.get("title")
+    bio["manager"] = bio.get("manager") or person.get("manager")
+    bio["team"] = bio.get("team") or person.get("department")
+
     return {
         "person": person,
+        "bio": bio,                             # name/birthday/hire_date/title/manager/team
         "identities": identities,
         "items": buckets,                       # per-source {open:[], handled:[]}
         "open_counts": open_counts,

@@ -1371,6 +1371,21 @@ async function showRollup(id) {
     ? `<div class="sec-title">SecondBrain</div><pre style="white-space:pre-wrap;font-size:11.5px;color:var(--text-2);background:var(--panel-2);padding:10px;border-radius:6px;max-height:280px;overflow:auto">${esc(r.secondbrain.body)}</pre>`
     : (r.secondbrain ? `<div class="sec-title">SecondBrain</div><div style="font-size:11.5px;color:var(--faint)">page <code>${esc(r.secondbrain.page)}</code> not found on disk</div>` : '');
 
+  // Bio block (from SecondBrain page, person-record fallback) + count pills.
+  const b = r.bio || {};
+  const bioRow = (k, v) => v ? `<span class="k">${esc(k)}</span><span class="v">${esc(v)}</span>` : '';
+  const bioGrid = [
+    bioRow('Team', b.team), bioRow('Manager', b.manager),
+    bioRow('Hire date', b.hire_date), bioRow('Birthday', b.birthday),
+    bioRow('Location', b.location),
+  ].filter(Boolean).join('');
+  // "Additional info" pills: open counts per ticket source (Asana lands later).
+  const countPill = (src, label) => {
+    const n = r.open_counts?.[src] || 0;
+    return `<span class="tag" style="background:var(--panel-2);color:${n ? 'var(--text)' : 'var(--faint)'}">${esc(label)} <b style="color:${n ? '#ff8f88' : 'var(--faint)'}">${n}</b></span>`;
+  };
+  const pills = ['jira', 'freshservice', 'otter'].map(s => countPill(s, s === 'otter' ? 'Otter AR' : SRC[s].label)).join(' ');
+
   // Pinned notes
   const notes = (r.notes || []).map(n =>
     `<div class="evi" data-note="${n.id}"><div class="evi-l1"><span>${esc(n.body)}</span>
@@ -1379,10 +1394,12 @@ async function showRollup(id) {
     || '<div style="font-size:11.5px;color:var(--faint)">none yet</div>';
 
   dp.innerHTML = `<div class="dp">
-    <div class="dp-eyebrow"><span style="font-size:11.5px;color:var(--muted)">${esc(p.department || '')}${p.is_report ? ' · GT report' : ''}</span><span class="tag" style="margin-left:auto;background:var(--err-dim);color:#ff8f88">${r.open_total} open</span></div>
-    <h2 class="dp-subject">${esc(p.name)}</h2>
-    <div style="color:var(--text-2);font-size:12.5px;margin-bottom:4px">${esc(p.title || '')}</div>
-    <div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">${esc(p.work_email || 'no email on file')} · mgr ${esc(p.manager || '—')} · ${ids}</div>
+    <div class="dp-eyebrow"><span style="font-size:11.5px;color:var(--muted)">${esc(b.team || p.department || '')}${p.is_report ? ' · GT report' : ''}</span><span class="tag" style="margin-left:auto;background:var(--err-dim);color:#ff8f88">${r.open_total} open</span></div>
+    <h2 class="dp-subject">${esc(b.name || p.name)}</h2>
+    <div style="color:var(--text-2);font-size:12.5px;margin-bottom:6px">${esc(b.title || p.title || '')}</div>
+    <div class="kv" style="margin-bottom:8px">${bioGrid}</div>
+    <div style="color:var(--muted);font-size:11.5px;margin-bottom:8px">${esc(p.work_email || 'no email on file')} · ${ids}</div>
+    <div style="margin-bottom:10px">${pills}</div>
     ${lt ? `<div style="color:var(--faint);font-size:11px;margin-bottom:10px">Last touch: ${esc(lt)}</div>` : ''}
     ${dlRow ? `<div style="margin-bottom:12px">${dlRow}</div>` : ''}
     <div class="sec-title" style="color:#ff8f88">Needs you · ${open.length}</div>${needs}

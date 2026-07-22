@@ -30,11 +30,57 @@ _FIELD_RE = {
 _NAME_RE = re.compile(r"^#\s+(.+)$", re.M)
 _WIKILINK_RE = re.compile(r"\[\[[^\]]+\]\]\s*")
 
+# Extended bio fields for the person page — parsed on-demand from the SecondBrain
+# page body (source of truth), not stored in the person table. Birthday is
+# optional (add `**Birthday:**` to a page to populate it; blank until then).
+_BIO_RE = {
+    "title": re.compile(r"^\*\*Title:\*\*\s*(.+)$", re.M),
+    "department": re.compile(r"^\*\*Department:\*\*\s*(.+)$", re.M),
+    "division": re.compile(r"^\*\*Division:\*\*\s*(.+)$", re.M),
+    "manager": re.compile(r"^\*\*Manager:\*\*\s*(.+)$", re.M),
+    "hire_date": re.compile(r"^\*\*Hire date:\*\*\s*(.+)$", re.M),
+    "birthday": re.compile(r"^\*\*Birthday:\*\*\s*(.+)$", re.M),
+    "location": re.compile(r"^\*\*Location:\*\*\s*(.+)$", re.M),
+}
+
 
 def _clean(v: str | None) -> str | None:
     if v is None:
         return None
     return _WIKILINK_RE.sub("", v).strip() or None
+
+
+_SLUG_LINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+
+
+def _person_ref(raw: str | None) -> str | None:
+    """Manager/person value: prefer trailing display text after the wikilink;
+    else humanize the wikilink slug ('[[garth-thompson]]' -> 'Garth Thompson')."""
+    if not raw:
+        return None
+    display = _clean(raw)                     # text with wikilinks stripped
+    if display:
+        return display
+    m = _SLUG_LINK_RE.search(raw)
+    if m:
+        return m.group(1).replace("-", " ").replace("_", " ").title()
+    return None
+
+
+def bio_fields(page_body: str | None) -> dict:
+    """Extract the person-page bio block from a SecondBrain page body. Returns a
+    dict with every _BIO_RE key (None when absent). 'team' = division or dept."""
+    body = page_body or ""
+    raw = {k: (rx.search(body).group(1) if rx.search(body) else None)
+           for k, rx in _BIO_RE.items()}
+    out = {k: _clean(v) for k, v in raw.items()}
+    out["manager"] = _person_ref(raw["manager"])
+    # Strip a wrapping parenthetical left by "[[engineering]] (Engineering)".
+    for k in ("division", "department"):
+        if out[k]:
+            out[k] = out[k].strip("()").strip() or out[k]
+    out["team"] = out.get("division") or out.get("department")
+    return out
 
 
 def load_roster() -> dict:

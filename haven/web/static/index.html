@@ -573,8 +573,18 @@ document.querySelectorAll('.nav-item[data-view]').forEach(b => b.addEventListene
 function setView(v) {
   state.view = v;
   if (v === 'inbox') state.pillFilter = null;   // plain Inbox nav = unfiltered
+  if (location.hash.startsWith('#person/')) history.replaceState(null, '', location.pathname);
   render();
 }
+// Hash routing: #person/<id> deep-links a person dossier (shareable, back-button).
+function applyHash() {
+  const m = location.hash.match(/^#person\/(\d+)$/);
+  if (!m) return;
+  state.view = 'people';
+  render();               // paints the People list pane (lazy-loads roster if needed)
+  showRollup(Number(m[1]));
+}
+window.addEventListener('hashchange', applyHash);
 // Inbox pill filters (topbar AR/Approve/Reply/Watch + left-nav AR entry).
 const PILL_FILTERS = {
   ar: it => !!it.raw.action_required,
@@ -1314,32 +1324,90 @@ function renderPeople() {
      <div class="grp-hd">GT's reports <span class="grp-ct">${reports.length}</span></div>${rowsHtml(reports)}
      <div class="grp-hd">Other roster <span class="grp-ct">${others.length}</span></div>${rowsHtml(others)}`;
   $('#list-pane').querySelectorAll('[data-person]').forEach(r =>
-    r.addEventListener('click', () => showRollup(Number(r.dataset.person))));
+    r.addEventListener('click', () => { location.hash = 'person/' + r.dataset.person; }));
   if (!$('#detail-pane').innerHTML) $('#detail-pane').innerHTML = '<div class="dp-placeholder">Select a person for their rollup.</div>';
+}
+function personItemRow(it) {
+  const dl = it.deeplink ? ` href="${esc(it.deeplink)}" target="_blank" rel="noopener"` : '';
+  const tag = it.tag ? `<span class="tag ${tagClass(String(it.tag).toLowerCase())}">${esc(it.tag)}</span>` : '';
+  const when = it.date ? age(new Date(it.date).getTime() / 1000) : '';
+  return `<a class="row u-${normUrg(it.urgency)}"${dl} style="text-decoration:none">
+    <span class="ubar"></span>${glyph(it.source)}
+    <span class="row-subj">${esc(it.subject || it.msg_id || '')}</span>
+    ${tag}<span class="row-time">${esc(when)}</span></a>`;
 }
 async function showRollup(id) {
   const dp = $('#detail-pane');
-  dp.innerHTML = '<div class="dp-placeholder">Loading rollup…</div>';
+  dp.innerHTML = '<div class="dp-placeholder">Loading dossier…</div>';
   let r;
-  try { r = await api(`/api/people/${id}/rollup`); } catch (e) { dp.innerHTML = '<div class="dp-placeholder">Rollup failed: ' + esc(e.message) + '</div>'; return; }
+  try { r = await api(`/api/people/${id}/rollup`); } catch (e) { dp.innerHTML = '<div class="dp-placeholder">Dossier failed: ' + esc(e.message) + '</div>'; return; }
   const p = r.person;
-  const ids = (r.identities || []).map(i => `<span class="tag" style="background:var(--panel-2)">${esc(i.system)}:${esc(i.system_id)}${i.is_manual_override ? ' ✎' : ''}</span>`).join(' ') || '<span style="color:var(--faint)">no system ids resolved</span>';
-  const bucket = (name, arr) => `<div class="sec-title">${esc(name)} · ${arr.length}</div>` +
-    (arr.length ? arr.map(it => `<div class="evi"><div class="evi-l1"><span>${esc(it.subject || it.msg_id || '')}</span></div><div class="evi-q">${esc(it.tag||'')} · ${esc(it.urgency||'')}</div></div>`).join('')
-                : '<div style="font-size:11.5px;color:var(--faint)">none</div>');
+  const ids = (r.identities || []).map(i => `<span class="tag" style="background:var(--panel-2)">${esc(i.system)}${i.is_manual_override ? ' ✎' : ''}</span>`).join(' ') || '<span style="color:var(--faint)">no system ids resolved</span>';
+
+  // Deeplinks row
+  const dlBtn = (k, label) => r.deeplinks[k] ? `<a class="btn btn-ghost" href="${esc(r.deeplinks[k])}" target="_blank" rel="noopener">${esc(label)} ↗</a>` : '';
+  const dlRow = [dlBtn('gmail', 'Email'), dlBtn('jira', 'Jira'), dlBtn('slack', 'Slack DM')].filter(Boolean).join(' ');
+
+  // NEEDS YOU — every open item across sources, urgency-sorted.
+  const open = [];
+  for (const src of SOURCES) for (const it of (r.items[src]?.open || [])) open.push(it);
+  open.sort((a, b) => (URG_RANK[normUrg(b.urgency)] || 0) - (URG_RANK[normUrg(a.urgency)] || 0));
+  const needs = open.length
+    ? open.map(personItemRow).join('')
+    : `<div class="evi-q" style="color:var(--ok)">✓ Nothing open needs you from ${esc((p.name||'').split(' ')[0])}</div>`;
+
+  // History — handled items per source, capped.
+  let history = '';
+  for (const src of SOURCES) {
+    const h = (r.items[src]?.handled || []).slice(0, 8);
+    if (h.length) history += `<div class="sec-title">${esc(SRC[src].label)} · handled ${r.items[src].handled.length}</div>${h.map(personItemRow).join('')}`;
+  }
+
+  // Last touch line
+  const lt = Object.entries(r.last_touch || {}).map(([s, d]) => `${SRC[s]?.label || s} ${age(new Date(d).getTime()/1000)}`).join(' · ');
+
+  // SecondBrain panel
+  const sb = r.secondbrain && r.secondbrain.body
+    ? `<div class="sec-title">SecondBrain</div><pre style="white-space:pre-wrap;font-size:11.5px;color:var(--text-2);background:var(--panel-2);padding:10px;border-radius:6px;max-height:280px;overflow:auto">${esc(r.secondbrain.body)}</pre>`
+    : (r.secondbrain ? `<div class="sec-title">SecondBrain</div><div style="font-size:11.5px;color:var(--faint)">page <code>${esc(r.secondbrain.page)}</code> not found on disk</div>` : '');
+
+  // Pinned notes
+  const notes = (r.notes || []).map(n =>
+    `<div class="evi" data-note="${n.id}"><div class="evi-l1"><span>${esc(n.body)}</span>
+      <button class="btn btn-ghost" data-hide-note="${n.id}" style="padding:1px 6px;font-size:10px">hide</button></div>
+      <div class="evi-q">pinned ${esc(age(new Date(n.created_at).getTime()/1000))} ago</div></div>`).join('')
+    || '<div style="font-size:11.5px;color:var(--faint)">none yet</div>';
+
   dp.innerHTML = `<div class="dp">
-    <div class="dp-eyebrow"><span style="font-size:11.5px;color:var(--muted)">${esc(p.department || '')}${p.is_report ? ' · GT report' : ''}</span></div>
+    <div class="dp-eyebrow"><span style="font-size:11.5px;color:var(--muted)">${esc(p.department || '')}${p.is_report ? ' · GT report' : ''}</span><span class="tag" style="margin-left:auto;background:var(--err-dim);color:#ff8f88">${r.open_total} open</span></div>
     <h2 class="dp-subject">${esc(p.name)}</h2>
     <div style="color:var(--text-2);font-size:12.5px;margin-bottom:4px">${esc(p.title || '')}</div>
-    <div style="color:var(--muted);font-size:11.5px;margin-bottom:12px">${esc(p.work_email || 'no email on file')} · mgr ${esc(p.manager || '—')}</div>
-    <div class="sec-title">System ids</div><div style="margin-bottom:6px">${ids}</div>
-    ${bucket('Open Jira', r.open_items.jira)}
-    ${bucket('Open Freshservice', r.open_items.freshservice)}
-    ${bucket('Open Otter ARs', r.open_items.otter)}
-    ${bucket('Open email', r.open_items.gmail)}
-    ${bucket('Open Slack', r.open_items.slack)}
-    <div style="margin-top:14px;font-size:11px;color:var(--faint)">Pending: ${(r.pending||[]).map(esc).join(' · ')}</div>
+    <div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">${esc(p.work_email || 'no email on file')} · mgr ${esc(p.manager || '—')} · ${ids}</div>
+    ${lt ? `<div style="color:var(--faint);font-size:11px;margin-bottom:10px">Last touch: ${esc(lt)}</div>` : ''}
+    ${dlRow ? `<div style="margin-bottom:12px">${dlRow}</div>` : ''}
+    <div class="sec-title" style="color:#ff8f88">Needs you · ${open.length}</div>${needs}
+    ${sb}
+    <div class="sec-title">Pinned notes</div>${notes}
+    <div style="margin-top:6px;display:flex;gap:6px">
+      <input id="note-input" placeholder="Pin a fact about ${esc((p.name||'').split(' ')[0])}…" style="flex:1;background:var(--panel-2);border:1px solid var(--border-2);border-radius:6px;padding:6px 8px;color:var(--text);font-size:12px">
+      <button class="btn btn-ghost" id="note-add">Pin</button>
+    </div>
+    ${history ? `<div style="margin-top:16px">${history}</div>` : ''}
   </div>`;
+
+  // Note interactions
+  const addNote = async () => {
+    const v = $('#note-input').value.trim();
+    if (!v) return;
+    try { await api(`/api/people/${id}/notes`, { method: 'POST', body: JSON.stringify({ body: v }) }); showRollup(id); }
+    catch (e) { toast('Pin failed: ' + e.message, true); }
+  };
+  $('#note-add').addEventListener('click', addNote);
+  $('#note-input').addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });
+  dp.querySelectorAll('[data-hide-note]').forEach(b => b.addEventListener('click', async () => {
+    try { await api(`/api/people/notes/${b.dataset.hideNote}/hide`, { method: 'POST' }); showRollup(id); }
+    catch (e) { toast('Hide failed: ' + e.message, true); }
+  }));
 }
 
 /* ---------- SYSTEM ---------- */
@@ -1561,6 +1629,7 @@ async function boot() {
   const first = orderedVisible()[0];
   if (first) state.selKey = first.key;
   render();
+  applyHash();   // honor a #person/<id> deep-link on cold load
   // periodic safety refresh for things SSE doesn't cover
   setInterval(async () => {
     await fetchApprovals(); await fetchMeta();

@@ -89,6 +89,87 @@ async def resolve_slack() -> dict:
     return {"resolved": resolved, "of": len(people)}
 
 
+async def resolve_jira() -> dict:
+    """Resolve Jira accountIds for roster people via user search on work email.
+    Best-effort; mirrors resolve_slack. Jira GDPR settings may hide emails, so
+    a miss is expected and simply reported, never guessed."""
+    if not (config.JIRA_BASE_URL and config.JIRA_EMAIL and config.JIRA_API_TOKEN):
+        return {"resolved": 0, "of": 0, "reason": "jira not configured"}
+    from haven.sources.jira import JiraClient
+    people = [p for p in spine.list_people() if p.get("work_email")]
+    resolved = 0
+    client = JiraClient()
+    try:
+        for p in people:
+            try:
+                j = await client._call(
+                    "GET", "/rest/api/3/user/search", params={"query": p["work_email"]}
+                ) or []
+                # Prefer an exact email match; else the sole atlassian-account hit.
+                acct = None
+                for u in j:
+                    if (u.get("emailAddress") or "").lower() == p["work_email"].lower():
+                        acct = u.get("accountId")
+                        break
+                if not acct and len(j) == 1 and j[0].get("accountType") == "atlassian":
+                    acct = j[0].get("accountId")
+                if acct:
+                    spine.map_identity(p["id"], "jira", acct, provenance="email_match")
+                    resolved += 1
+            except Exception as e:  # noqa: BLE001 — expected for non-Jira users
+                log.debug("jira lookup miss for %s: %s", p["work_email"], e)
+    finally:
+        await client.aclose()
+    return {"resolved": resolved, "of": len(people)}
+
+
+def _item_matches_person(src: str, it: dict, email: str,
+                         slack_ids: set[str], jira_ids: set[str]) -> bool:
+    """Per-source attribution — the fix for the email-only rollup that missed
+    Slack (blank sender_email) and Jira (accountId, not email)."""
+    if src in ("gmail", "freshservice"):
+        m = _EMAIL_RE.search(it.get("sender_email") or it.get("sender") or it.get("from") or "")
+        return bool(email) and bool(m) and m.group(0).lower() == email
+    if src == "slack":
+        return bool(slack_ids) and it.get("sender_id") in slack_ids
+    if src == "jira":
+        return bool(jira_ids) and (
+            it.get("assignee_account_id") in jira_ids
+            or it.get("reporter_account_id") in jira_ids
+        )
+    if src == "otter":
+        guests = {(g or "").lower() for g in (it.get("calendar_guest_emails") or [])}
+        return bool(email) and email in guests
+    return False
+
+
+def items_for_person(person: dict, identities: list[dict]) -> dict:
+    """All cached items attributable to this person, per source, split
+    open/handled. Newest first. UI-ready rows only (no raw payloads)."""
+    email = (person.get("work_email") or "").lower()
+    slack_ids = {i["system_id"] for i in identities if i["system"] == "slack"}
+    jira_ids = {i["system_id"] for i in identities if i["system"] == "jira"}
+    buckets: dict[str, dict[str, list]] = {
+        src: {"open": [], "handled": []} for src in config.KNOWN_SOURCES
+    }
+    for src in config.KNOWN_SOURCES:
+        for it in cursor_store.list_cached(src):
+            if not _item_matches_person(src, it, email, slack_ids, jira_ids):
+                continue
+            row = {
+                "msg_id": it.get("msg_id"), "source": src,
+                "subject": it.get("subject") or it.get("snippet") or "",
+                "tag": it.get("tag"), "urgency": it.get("urgency"),
+                "date": it.get("date"), "deeplink": it.get("deeplink"),
+                "handled_at": it.get("handled_at"),
+            }
+            buckets[src]["handled" if it.get("handled_at") else "open"].append(row)
+    for src in buckets:
+        for k in ("open", "handled"):
+            buckets[src][k].sort(key=lambda r: r.get("date") or "", reverse=True)
+    return buckets
+
+
 def unresolved_senders(limit: int = 200) -> list[dict]:
     """Senders seen in cached items whose email doesn't map to any person.
     Derived, not stored — the 'never silently wrong' queue."""
@@ -119,6 +200,10 @@ async def scheduled_drift() -> dict:
         await resolve_slack()
     except Exception as e:  # noqa: BLE001
         log.warning("drift: slack resolve failed: %s", e)
+    try:
+        await resolve_jira()
+    except Exception as e:  # noqa: BLE001
+        log.warning("drift: jira resolve failed: %s", e)
     report = roster_drift()
     log.info("Roster drift: %d candidate joiners, %d without slack id",
              len(report["candidate_joiners"]), len(report["roster_people_without_slack_id"]))

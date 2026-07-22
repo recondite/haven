@@ -1374,6 +1374,14 @@ async function showRollup(id) {
   // Last touch line
   const lt = Object.entries(r.last_touch || {}).map(([s, d]) => `${SRC[s]?.label || s} ${age(new Date(d).getTime()/1000)}`).join(' · ');
 
+  // 1:1 row (direct reports only) — next meeting time + linked Google Doc.
+  const o = r.one_on_one;
+  const oneOnOne = o ? `<div style="margin-bottom:10px;font-size:12px;color:var(--text-2)">
+    <span class="k" style="color:var(--muted)">1:1</span>
+    ${o.next_time ? esc(new Date(o.next_time).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) : 'no upcoming'}
+    ${o.doc_url ? ` · <a href="${esc(o.doc_url)}" target="_blank" rel="noopener">1:1 doc ↗</a>` : ''}
+  </div>` : (p.is_report ? `<div style="margin-bottom:10px;font-size:11px;color:var(--faint)">1:1 — none found (grant calendar scope via re-auth if expected)</div>` : '');
+
   // SecondBrain panel
   const sb = r.secondbrain && r.secondbrain.body
     ? `<div class="sec-title">SecondBrain</div><pre style="white-space:pre-wrap;font-size:11.5px;color:var(--text-2);background:var(--panel-2);padding:10px;border-radius:6px;max-height:280px;overflow:auto">${esc(r.secondbrain.body)}</pre>`
@@ -1409,6 +1417,7 @@ async function showRollup(id) {
     <div style="color:var(--muted);font-size:11.5px;margin-bottom:8px">${esc(p.work_email || 'no email on file')} · ${ids}</div>
     <div style="margin-bottom:10px">${pills}</div>
     ${lt ? `<div style="color:var(--faint);font-size:11px;margin-bottom:10px">Last touch: ${esc(lt)}</div>` : ''}
+    ${oneOnOne}
     ${dlRow ? `<div style="margin-bottom:12px">${dlRow}</div>` : ''}
     <div class="sec-title" style="color:#ff8f88">Needs you · ${open.length}</div>${needs}
     ${sb}

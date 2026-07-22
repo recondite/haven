@@ -1,0 +1,33 @@
+# Jira agent config — Phase 1
+# Pulls issues needing Garth's attention via configurable JQL scopes.
+# Issues persist in Haven only while they match an enabled scope's JQL;
+# the poll evicts cached issues that fall out of the result set.
+name: jira
+enabled: true
+poll_seconds: 900                 # 15 minutes (driven by orchestrator in main.py)
+
+identity:
+  email: garth@ayarlabs.com       # informational; accountId resolved via /rest/api/3/myself
+
+# Each scope is a raw JQL query. Disabled scopes are skipped. A scope whose
+# JQL errors (bad field, JSM not installed, ...) is logged and skipped —
+# one bad query must not kill the poll.
+scopes:
+  - name: assigned
+    enabled: true
+    jql: "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+  - name: watched_stale
+    enabled: false                # noisy until tuned; enable to surface stale watched issues
+    jql: "watcher = currentUser() AND assignee != currentUser() AND statusCategory != Done AND updated <= -14d ORDER BY updated DESC"
+  - name: pending_approvals
+    enabled: false                # JSM only — enable after confirming Service Management is installed
+    jql: "approval = myPending() ORDER BY created DESC"
+
+# Hard-skip rules (analogous to Freshservice never_keep).
+never_keep:
+  issue_types: [Sub-task]
+  statuses: []
+
+# Pagination
+max_results: 100                  # per page
+max_pages: 5                      # 500 issue safety cap

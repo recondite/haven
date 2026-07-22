@@ -35,7 +35,7 @@ QUIET_HOURS_START = int(os.getenv("HAVEN_QUIET_HOURS_START", "0"))   # midnight
 QUIET_HOURS_END = int(os.getenv("HAVEN_QUIET_HOURS_END", "7"))       # 7 AM (exclusive)
 
 # Sources Haven knows how to poll/cache. Used to validate {source} path params.
-KNOWN_SOURCES = ("gmail", "slack", "freshservice", "otter")
+KNOWN_SOURCES = ("gmail", "slack", "freshservice", "otter", "jira")
 
 # LLM
 # LLM_MODE selects the runtime backend: "cli"/"claude" -> Claude CLI shell-out,

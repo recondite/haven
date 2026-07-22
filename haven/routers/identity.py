@@ -58,12 +58,12 @@ async def rollup(person_id: int) -> dict:
 
     # Items across sources attributable to this person by sender email. Honest
     # subset: JIRA + a dedicated request queue arrive with Phase 2's later steps.
-    buckets: dict[str, list] = {"freshservice": [], "otter": [], "gmail": [], "slack": []}
+    buckets: dict[str, list] = {src: [] for src in config.KNOWN_SOURCES}
     for src in config.KNOWN_SOURCES:
         for it in cursor_store.list_cached(src):
             if it.get("handled_at"):
                 continue
-            m = _EMAIL_RE.search(it.get("sender") or it.get("from") or "")
+            m = _EMAIL_RE.search(it.get("sender_email") or it.get("sender") or it.get("from") or "")
             if m and m.group(0).lower() == email and email:
                 buckets[src].append({
                     "msg_id": it.get("msg_id"), "subject": it.get("subject") or it.get("snippet"),
@@ -74,5 +74,5 @@ async def rollup(person_id: int) -> dict:
         "identities": spine.identities_for_person(person_id),
         "open_items": buckets,
         "counts": {k: len(v) for k, v in buckets.items()},
-        "pending": ["jira (source not yet wired)", "requests-to-GT (request queue, Phase 2)"],
+        "pending": ["requests-to-GT (request queue, Phase 2)"],
     }

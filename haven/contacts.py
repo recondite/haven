@@ -160,6 +160,17 @@ def derive_contacts(
                 company="",
                 item=item,
             )
+        elif src == "jira":
+            email = item.get("sender_email") or ""
+            if not email:
+                continue       # Jira GDPR settings often redact reporter email; skip
+            _record(
+                contacts,
+                email=email,
+                name=item.get("sender_name") or "",
+                company="",
+                item=item,
+            )
         elif src == "otter":
             # Each meeting attendee (excluding Garth) gets a touchpoint for this AR.
             for ge in item.get("calendar_guest_emails") or []:

@@ -174,7 +174,7 @@ def _project(source: str, payload: dict) -> dict:
     return {
         "kind": _KIND_BY_SOURCE.get(source),
         "subject": payload.get("subject"),
-        "sender": payload.get("sender") or payload.get("from"),
+        "sender": payload.get("sender_email") or payload.get("sender") or payload.get("from"),
         "url": payload.get("url"),
         "status": status,
         "score": payload.get("score"),

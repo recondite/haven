@@ -401,6 +401,7 @@ const state = {
   selected: new Set(),  // multi-select: item keys checked for bulk actions
   selKey: null,          // inbox selection: "source|msg_id"
   selDraft: null,        // approvals selection: draft id
+  apprView: null,        // approvals detail mode: 'item' (inbound sign-off) | 'draft' | null
   sse: { live: false, lastEvent: 0 },
 };
 
@@ -575,6 +576,7 @@ document.querySelectorAll('.nav-item[data-view]').forEach(b => b.addEventListene
 function setView(v) {
   state.view = v;
   if (v === 'inbox') state.pillFilter = null;   // plain Inbox nav = unfiltered
+  if (v === 'approvals') state.apprView = null; // land on the drafts detail, not a stale item card
   if (location.hash.startsWith('#person/')) history.replaceState(null, '', location.pathname);
   render();
 }
@@ -600,7 +602,12 @@ function togglePill(key) {
   render();
 }
 document.querySelectorAll('.count-pill[data-pill]').forEach(p =>
-  p.addEventListener('click', () => togglePill(p.dataset.pill)));
+  p.addEventListener('click', () => {
+    // "Approve" is its own screen now (merged with the Approvals view); the rest
+    // stay as inbox filters.
+    if (p.dataset.pill === 'approval') setView('approvals');
+    else togglePill(p.dataset.pill);
+  }));
 document.querySelector('[data-arnav]').addEventListener('click', () => {
   state.pillFilter = 'ar'; state.view = 'inbox'; render();
 });
@@ -708,11 +715,14 @@ function renderChrome() {
   const threadCount = threadGroups(vis).length;
   $('#badge-inbox').textContent = threadCount;
   $('#badge-inbox').classList.toggle('hot', threadCount > 0);
+  // Approvals badge = inbound sign-offs + outbound drafts (the merged screen total).
   const pend = state.approvals.drafts.length;
-  $('#badge-appr').textContent = pend;
-  $('#badge-appr').classList.toggle('amber', pend > 0);
+  const inboundAppr = allItems().filter(i => i.tag === 'approval' && !i.raw.handled_at && !isSnoozed(i)).length;
+  const apprTotal = inboundAppr + pend;
+  $('#badge-appr').textContent = apprTotal;
+  $('#badge-appr').classList.toggle('amber', apprTotal > 0);
   $('#cnt-ar').textContent = vis.filter(i => i.raw.action_required).length;
-  $('#cnt-appr').textContent = vis.filter(i => i.tag === 'approval').length;
+  $('#cnt-appr').textContent = inboundAppr;
   $('#cnt-reply').textContent = vis.filter(i => i.raw.reply_needed).length;
   $('#cnt-watch').textContent = vis.filter(i => i.raw.watchlist_match).length;
 
@@ -946,8 +956,10 @@ function renderItemDetail(itemArg, backTo) {
       <span class="k">j</span> <span class="k">k</span> navigate &nbsp; <span class="k">e</span> done &nbsp; <span class="k">s</span> snooze &nbsp; <span class="k">c</span> linear &nbsp; <span class="k">d</span> draft</div>`;
     return;
   }
-  const backBtn = backTo != null
-    ? `<button class="btn btn-ghost" data-back-person="${backTo}" style="margin-bottom:10px">← Back to person</button>` : '';
+  // backTo is a token: "person:<id>" or "approvals" (or null for no back button).
+  const backLabel = backTo === 'approvals' ? '← Back to Approvals' : '← Back to person';
+  const backBtn = backTo
+    ? `<button class="btn btn-ghost" data-back="${esc(backTo)}" style="margin-bottom:10px">${backLabel}</button>` : '';
   const r = it.raw, s = SRC[it.source];
   const why = whyNow(it);
   const from = r.sender_email || r.channel_name || r.meeting_title || '';
@@ -1002,8 +1014,12 @@ function renderItemDetail(itemArg, backTo) {
     </div>
   </div>`;
   dp.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => itemAction(it, b.dataset.act)));
-  const back = dp.querySelector('[data-back-person]');
-  if (back) back.addEventListener('click', () => showRollup(Number(back.dataset.backPerson)));
+  const back = dp.querySelector('[data-back]');
+  if (back) back.addEventListener('click', () => {
+    const t = back.dataset.back;
+    if (t.startsWith('person:')) showRollup(Number(t.slice(7)));
+    else if (t === 'approvals') setView('approvals');
+  });
 }
 
 /* ---------- ITEM ACTIONS (optimistic + API) ---------- */
@@ -1076,29 +1092,56 @@ function draftTitle(d) {
 }
 function renderApprovals() {
   const drafts = state.approvals.drafts;
+  // Section 1 — inbound items needing Garth's sign-off (tag=approval), all sources.
+  const inbound = allItems()
+    .filter(i => i.tag === 'approval' && !i.raw.handled_at && !isSnoozed(i))
+    .sort((a, b) => b.ts - a.ts);
   if (state.selDraft == null || !drafts.some(d => d.id === state.selDraft)) state.selDraft = drafts.length ? drafts[0].id : null;
-  let h = `<div class="group-hd"><span class="gdot" style="background:var(--warn)"></span>Pending review <span class="gcount">${drafts.length}</span></div>`;
+
+  let h = `<div class="group-hd"><span class="gdot" style="background:var(--warn)"></span>Needs your approval <span class="gcount">${inbound.length}</span></div>`;
+  h += inbound.length
+    ? inbound.map(it => rowHTML(it)).join('')
+    : '<div style="padding:6px 18px;font-size:11.5px;color:var(--faint)">No incoming approvals right now.</div>';
+  h += `<div class="group-hd"><span class="gdot" style="background:var(--accent)"></span>Drafts to send <span class="gcount">${drafts.length}</span></div>`;
   if (drafts.length) {
-    h += drafts.map(d => `<div class="appr-card ${state.selDraft === d.id ? 'sel' : ''}" data-id="${d.id}">
+    h += drafts.map(d => `<div class="appr-card ${state.apprView !== 'item' && state.selDraft === d.id ? 'sel' : ''}" data-id="${d.id}">
       <div class="appr-l1">${SRC[d.kind] ? glyph(d.kind) : ''}<span class="appr-to">${esc(draftTitle(d))}</span><span class="appr-via">#${d.id}${d.job_id != null ? ' · job ' + d.job_id : ''}</span><span class="appr-time">${esc(d.created_at || '')}</span></div>
       <div class="appr-preview">${esc(d.payload || '')}</div>
     </div>`).join('');
   } else {
-    h += '<div class="empty"><div class="big">✓</div>Approval queue clear — no drafts pending.<br><span style="font-size:11.5px;color:var(--faint)">Run "Draft reply" on a Slack item to generate one.</span></div>';
+    h += '<div style="padding:6px 18px;font-size:11.5px;color:var(--faint)">No drafts pending — run "Draft reply" on a Slack/Gmail item to generate one.</div>';
   }
   $('#list-pane').innerHTML = h;
+  $('#list-pane').querySelectorAll('.row[data-key]').forEach(el =>
+    el.addEventListener('click', () => { state.apprView = 'item'; state.selKey = el.dataset.key; render(); }));
   $('#list-pane').querySelectorAll('.appr-card').forEach(el =>
-    el.addEventListener('click', () => { state.selDraft = Number(el.dataset.id); render(); }));
-  renderApprDetail();
+    el.addEventListener('click', () => { state.apprView = 'draft'; state.selDraft = Number(el.dataset.id); render(); }));
+
+  if (state.apprView === 'item') {
+    const it = findItem(state.selKey);
+    if (it) renderItemDetail(it, 'approvals'); else renderApprDetail();
+  } else {
+    renderApprDetail();
+  }
 }
 function renderApprDetail() {
   const dp = $('#detail-pane');
   const d = state.approvals.drafts.find(x => x.id === state.selDraft);
   if (!d) { dp.innerHTML = '<div class="dp-placeholder">Select a draft to review its evidence and approve or reject.<br><br><span class="k">a</span> approve &nbsp; <span class="k">r</span> reject</div>'; return; }
   const ev = Array.isArray(d.evidence) ? d.evidence : [];
+  // Original item this reply is grounded in (kind 'email' -> gmail source; target = its msg_id).
+  const origSrc = d.kind === 'email' ? 'gmail' : d.kind;
+  const origIt = d.target ? findItem(`${origSrc}|${d.target}`) : null;
+  const origDl = origIt && origIt.raw ? origIt.raw.deeplink : '';
+  const origRow = (origIt || origDl) ? `<div style="margin:6px 0 12px;display:flex;gap:8px;align-items:center">
+    <span class="k" style="color:var(--muted)">Original</span>
+    ${origIt ? `<button class="btn btn-ghost" data-appr="review-original">📄 Review original here</button>` : ''}
+    ${origDl ? `<a class="btn btn-ghost" href="${esc(origDl)}" target="_blank" rel="noopener">Open in ${esc(SRC[origSrc] ? SRC[origSrc].label : origSrc)} ↗</a>` : ''}
+  </div>` : '';
   dp.innerHTML = `<div class="dp">
     <div class="dp-eyebrow">${SRC[d.kind] ? glyph(d.kind) : ''}<span style="font-size:11.5px;color:var(--muted)">draft #${d.id} · ${esc(d.kind || '')}${d.created_at ? ' · ' + esc(d.created_at) : ''}</span></div>
     <h2 class="dp-subject">${esc(draftTitle(d))}</h2>
+    ${origRow}
     <div class="sec-title">Draft${d.original_payload && d.original_payload !== d.payload ? ' <span style="color:var(--warn);font-size:10px">· edited</span>' : ''}</div>
     ${state.editingDraft === d.id
       ? `<textarea class="draft-edit" id="draft-edit-ta">${esc(d.payload || '')}</textarea>`
@@ -1133,6 +1176,14 @@ function renderApprDetail() {
 }
 async function approvalAction(id, act) {
   try {
+    if (act === 'review-original') {
+      const d = state.approvals.drafts.find(x => x.id === id);
+      const src = d && d.kind === 'email' ? 'gmail' : (d ? d.kind : '');
+      const it = d && d.target ? findItem(`${src}|${d.target}`) : null;
+      if (it) renderItemDetail(it, 'approvals');       // back button returns to the draft
+      else toast('Original not in cache — use "Open in …" to view at the source');
+      return;
+    }
     if (act === 'edit') { state.editingDraft = id; render(); return; }
     if (act === 'cancel') { state.editingDraft = null; render(); return; }
     if (act === 'save') {
@@ -1443,7 +1494,7 @@ async function showRollup(id) {
     const key = el.dataset.personItem;
     const src = key.split('|')[0];
     const it = (state.items[src] || []).find(x => x.key === key);
-    if (it) renderItemDetail(it, id);
+    if (it) renderItemDetail(it, 'person:' + id);
     else if (el.dataset.deeplink) window.open(el.dataset.deeplink, '_blank');
     else toast('Item not in cache — open in source via ↗');
   }));

@@ -151,6 +151,19 @@ _MIGRATIONS: list[str] = [
         updated_by TEXT
     );
     """,
+    # v6 — person pages: Garth-authored notes pinned to a person. Append-only,
+    # hide-not-delete (per ground rule #1 on local data). Everything else the
+    # dossier shows is aggregated on-demand from caches + SecondBrain, not stored.
+    """
+    CREATE TABLE person_note (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        person_id  INTEGER NOT NULL REFERENCES person(id),
+        body       TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        hidden_at  TEXT
+    );
+    CREATE INDEX idx_person_note_person ON person_note(person_id);
+    """,
 ]
 
 _KIND_BY_SOURCE = {
@@ -531,6 +544,42 @@ class Spine:
                 "SELECT system, system_id, confidence, provenance, is_manual_override "
                 "FROM identity_map WHERE person_id=? ORDER BY system", (person_id,)
             ).fetchall()]
+
+    # ─── Person notes (v6) ───────────────────────────────
+    def add_note(self, person_id: int, body: str) -> dict:
+        body = (body or "").strip()
+        if not body:
+            raise ValueError("note body is empty")
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO person_note (person_id, body) VALUES (?, ?)", (person_id, body)
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT id, person_id, body, created_at FROM person_note WHERE id=?",
+                (cur.lastrowid,),
+            ).fetchone()
+            return dict(row)
+
+    def list_notes(self, person_id: int) -> list[dict]:
+        """Active (non-hidden) notes, newest first."""
+        with self._lock:
+            return [dict(r) for r in self._conn.execute(
+                "SELECT id, person_id, body, created_at FROM person_note "
+                "WHERE person_id=? AND hidden_at IS NULL ORDER BY created_at DESC, id DESC",
+                (person_id,),
+            ).fetchall()]
+
+    def hide_note(self, note_id: int) -> bool:
+        """Soft-delete: mark hidden, never DELETE (append-only local data)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE person_note SET hidden_at=datetime('now') "
+                "WHERE id=? AND hidden_at IS NULL",
+                (note_id,),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
 
     def identity_coverage(self) -> dict:
         with self._lock:

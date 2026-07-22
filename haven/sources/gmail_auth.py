@@ -221,7 +221,12 @@ class GmailAuth:
     def credentials(self) -> Optional[Credentials]:
         if not self.is_authed():
             return None
-        return Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
+        # Load with the token's OWN granted scopes (omit SCOPES) so a refresh only
+        # requests what was actually granted. Passing the desired SCOPES here makes
+        # refresh request not-yet-granted scopes (e.g. a newly-added calendar
+        # scope) → Google 'invalid_scope'. The desired set drives the authorize
+        # flow + has_required_scopes() (which reads the file), not refresh.
+        return Credentials.from_authorized_user_file(str(self.token_path))
 
     def has_required_scopes(self) -> bool:
         """True if the persisted token covers all SCOPES we now need.

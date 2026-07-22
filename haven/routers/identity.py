@@ -27,6 +27,11 @@ async def resolve_jira() -> dict:
     return await identity.resolve_jira()
 
 
+@router.post("/identity/resolve/asana")
+async def resolve_asana() -> dict:
+    return await identity.resolve_asana()
+
+
 @router.get("/identity/coverage")
 async def coverage() -> dict:
     cov = spine.identity_coverage()

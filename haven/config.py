@@ -35,7 +35,7 @@ QUIET_HOURS_START = int(os.getenv("HAVEN_QUIET_HOURS_START", "0"))   # midnight
 QUIET_HOURS_END = int(os.getenv("HAVEN_QUIET_HOURS_END", "7"))       # 7 AM (exclusive)
 
 # Sources Haven knows how to poll/cache. Used to validate {source} path params.
-KNOWN_SOURCES = ("gmail", "slack", "freshservice", "otter", "jira")
+KNOWN_SOURCES = ("gmail", "slack", "freshservice", "otter", "jira", "asana")
 
 # LLM
 # LLM_MODE selects the runtime backend: "cli"/"claude" -> Claude CLI shell-out,
@@ -81,6 +81,10 @@ JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
 # Freshservice
 FRESHSERVICE_DOMAIN = os.getenv("FRESHSERVICE_DOMAIN")
 FRESHSERVICE_API_KEY = os.getenv("FRESHSERVICE_API_KEY")
+
+# Asana
+ASANA_TOKEN = os.getenv("ASANA_TOKEN")            # Personal Access Token
+ASANA_WORKSPACE = os.getenv("ASANA_WORKSPACE")    # optional workspace gid; else first from /users/me
 
 # Otter.ai
 OTTER_API_KEY = os.getenv("OTTER_API_KEY")

@@ -169,8 +169,43 @@ async def resolve_jira() -> dict:
     return {"resolved": resolved, "of": len(people)}
 
 
+async def resolve_asana() -> dict:
+    """Resolve Asana user gids for roster people via workspace user search on
+    work email. Best-effort; mirrors resolve_slack/resolve_jira."""
+    if not config.ASANA_TOKEN:
+        return {"resolved": 0, "of": 0, "reason": "asana not configured"}
+    from haven.sources.asana import AsanaClient
+    people = [p for p in spine.list_people() if p.get("work_email")]
+    resolved = 0
+    client = AsanaClient()
+    try:
+        me = await client.me()
+        ws = me["workspace_gid"]
+        if not ws:
+            return {"resolved": 0, "of": len(people), "reason": "no workspace"}
+        # One workspace-users fetch, then match by email locally.
+        j = await client._call(
+            "GET", f"/workspaces/{ws}/users", params={"opt_fields": "email,name"}
+        ) or {}
+        by_email = {
+            (u.get("email") or "").lower(): str(u.get("gid"))
+            for u in (j.get("data") or []) if u.get("email")
+        }
+        for p in people:
+            gid = by_email.get(p["work_email"].lower())
+            if gid:
+                spine.map_identity(p["id"], "asana", gid, provenance="email_match")
+                resolved += 1
+    except Exception as e:  # noqa: BLE001
+        log.debug("asana resolve failed: %s", e)
+    finally:
+        await client.aclose()
+    return {"resolved": resolved, "of": len(people)}
+
+
 def _item_matches_person(src: str, it: dict, email: str,
-                         slack_ids: set[str], jira_ids: set[str]) -> bool:
+                         slack_ids: set[str], jira_ids: set[str],
+                         asana_ids: set[str] | None = None) -> bool:
     """Per-source attribution — the fix for the email-only rollup that missed
     Slack (blank sender_email) and Jira (accountId, not email)."""
     if src in ("gmail", "freshservice"):
@@ -183,6 +218,8 @@ def _item_matches_person(src: str, it: dict, email: str,
             it.get("assignee_account_id") in jira_ids
             or it.get("reporter_account_id") in jira_ids
         )
+    if src == "asana":
+        return bool(asana_ids) and it.get("assignee_gid") in asana_ids
     if src == "otter":
         guests = {(g or "").lower() for g in (it.get("calendar_guest_emails") or [])}
         return bool(email) and email in guests
@@ -195,12 +232,13 @@ def items_for_person(person: dict, identities: list[dict]) -> dict:
     email = (person.get("work_email") or "").lower()
     slack_ids = {i["system_id"] for i in identities if i["system"] == "slack"}
     jira_ids = {i["system_id"] for i in identities if i["system"] == "jira"}
+    asana_ids = {i["system_id"] for i in identities if i["system"] == "asana"}
     buckets: dict[str, dict[str, list]] = {
         src: {"open": [], "handled": []} for src in config.KNOWN_SOURCES
     }
     for src in config.KNOWN_SOURCES:
         for it in cursor_store.list_cached(src):
-            if not _item_matches_person(src, it, email, slack_ids, jira_ids):
+            if not _item_matches_person(src, it, email, slack_ids, jira_ids, asana_ids):
                 continue
             row = {
                 "msg_id": it.get("msg_id"), "source": src,
@@ -250,6 +288,10 @@ async def scheduled_drift() -> dict:
         await resolve_jira()
     except Exception as e:  # noqa: BLE001
         log.warning("drift: jira resolve failed: %s", e)
+    try:
+        await resolve_asana()
+    except Exception as e:  # noqa: BLE001
+        log.warning("drift: asana resolve failed: %s", e)
     report = roster_drift()
     log.info("Roster drift: %d candidate joiners, %d without slack id",
              len(report["candidate_joiners"]), len(report["roster_people_without_slack_id"]))

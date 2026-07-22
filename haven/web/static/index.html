@@ -152,6 +152,7 @@
   .sg-gmail{background:var(--err-dim);color:#ff8f88} .sg-slack{background:var(--purple-dim);color:var(--purple)}
   .sg-freshservice{background:var(--ok-dim);color:#6fd382} .sg-otter{background:var(--info-dim);color:#79b8ff}
   .sg-jira{background:var(--info-dim);color:#4c9aff}
+  .sg-asana{background:var(--purple-dim);color:#f06a9a}
   .row-sender{font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;max-width:160px}
   .row-subj{font-size:13px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
   .row-subj .snip{color:var(--muted)}
@@ -371,18 +372,19 @@ async function api(path, opts = {}) {
 }
 
 /* ===================== STATE ===================== */
-const SOURCES = ['gmail', 'slack', 'freshservice', 'otter', 'jira'];
+const SOURCES = ['gmail', 'slack', 'freshservice', 'otter', 'jira', 'asana'];
 const SRC = {
   gmail:        { g: 'GM', label: 'Gmail' },
   slack:        { g: 'SL', label: 'Slack' },
   freshservice: { g: 'FS', label: 'Freshservice' },
   otter:        { g: 'OT', label: 'Otter.ai' },
   jira:         { g: 'JR', label: 'Jira' },
+  asana:        { g: 'AS', label: 'Asana' },
 };
 const state = {
   view: 'inbox',
-  items: { gmail: [], slack: [], freshservice: [], otter: [], jira: [] },   // normalized
-  loaded: { gmail: false, slack: false, freshservice: false, otter: false, jira: false },
+  items: { gmail: [], slack: [], freshservice: [], otter: [], jira: [], asana: [] },   // normalized
+  loaded: { gmail: false, slack: false, freshservice: false, otter: false, jira: false, asana: false },
   approvals: { drafts: [], dry_run: false },
   auth: {},              // source -> status payload (or {error})
   watchlist: [],
@@ -936,14 +938,16 @@ function ingestPayload(it) {
            body, source: `${it.source}:${it.id}` };
 }
 function kvRow(k, v) { return v ? `<span class="k">${esc(k)}</span><span class="v">${v}</span>` : ''; }
-function renderItemDetail() {
+function renderItemDetail(itemArg, backTo) {
   const dp = $('#detail-pane');
-  const it = selectedItem();
-  if (!it || !visibleItems().includes(it)) {
+  const it = itemArg || selectedItem();
+  if (!it || (!itemArg && !visibleItems().includes(it))) {
     dp.innerHTML = `<div class="dp-placeholder">Select an item to see full context and actions.<br><br>
       <span class="k">j</span> <span class="k">k</span> navigate &nbsp; <span class="k">e</span> done &nbsp; <span class="k">s</span> snooze &nbsp; <span class="k">c</span> linear &nbsp; <span class="k">d</span> draft</div>`;
     return;
   }
+  const backBtn = backTo != null
+    ? `<button class="btn btn-ghost" data-back-person="${backTo}" style="margin-bottom:10px">← Back to person</button>` : '';
   const r = it.raw, s = SRC[it.source];
   const why = whyNow(it);
   const from = r.sender_email || r.channel_name || r.meeting_title || '';
@@ -957,6 +961,7 @@ function renderItemDetail() {
     : '';
 
   dp.innerHTML = `<div class="dp">
+    ${backBtn}
     <div class="dp-eyebrow">${glyph(it.source)}<span style="font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.label)}${from ? ' · ' + esc(from) : ''}</span><span class="tag ${tagClass(it.tag)}" style="margin-left:auto">${esc(it.tag || '—')}</span></div>
     <h2 class="dp-subject">${esc(it.subject)}</h2>
     <div class="dp-meta">From <b>${esc(it.sender)}</b> · ${age(it.ts)} ago · urgency <b style="text-transform:capitalize">${esc(it.urg)}</b>${r.handled_at ? ' · <b style="color:var(--ok)">handled</b>' : ''}</div>
@@ -989,7 +994,7 @@ function renderItemDetail() {
       ${r.linear_id
         ? `<a class="btn btn-ghost" href="${esc(r.linear_url || '#')}" target="_blank" rel="noopener">▤ Open in Linear</a>
            ${r.linear_closed_at ? '' : `<button class="btn btn-ghost" data-act="linear-close">Close issue</button>`}`
-        : (it.source === 'jira' ? '' : `<button class="btn btn-ghost" data-act="linear">▤ Capture to Linear</button>`)}
+        : (it.source === 'jira' || it.source === 'asana' ? '' : `<button class="btn btn-ghost" data-act="linear">▤ Capture to Linear</button>`)}
       <button class="btn btn-primary" data-act="draft" ${canDraftReply ? '' : 'disabled title="Draft agents for this source ship soon — Slack + Gmail for now"'}>✎ Draft reply${canDraftReply ? '' : ' (soon)'}</button>
       <button class="btn btn-ghost" data-act="secondbrain" title="Draft this item into SecondBrain — review in Approvals before it writes">→ SecondBrain</button>
       ${it.source === 'gmail' ? `<button class="btn btn-ghost" data-act="eval" title="Confirm this item's tag/urgency as a golden eval case">＋ Eval case</button>
@@ -997,6 +1002,8 @@ function renderItemDetail() {
     </div>
   </div>`;
   dp.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => itemAction(it, b.dataset.act)));
+  const back = dp.querySelector('[data-back-person]');
+  if (back) back.addEventListener('click', () => showRollup(Number(back.dataset.backPerson)));
 }
 
 /* ---------- ITEM ACTIONS (optimistic + API) ---------- */
@@ -1328,13 +1335,14 @@ function renderPeople() {
   if (!$('#detail-pane').innerHTML) $('#detail-pane').innerHTML = '<div class="dp-placeholder">Select a person for their rollup.</div>';
 }
 function personItemRow(it) {
-  const dl = it.deeplink ? ` href="${esc(it.deeplink)}" target="_blank" rel="noopener"` : '';
   const tag = it.tag ? `<span class="tag ${tagClass(String(it.tag).toLowerCase())}">${esc(it.tag)}</span>` : '';
   const when = it.date ? age(new Date(it.date).getTime() / 1000) : '';
-  return `<a class="row u-${normUrg(it.urgency)}"${dl} style="text-decoration:none">
+  const openLink = it.deeplink ? `<a class="row-time" href="${esc(it.deeplink)}" target="_blank" rel="noopener" title="Open in ${esc(SRC[it.source]?.label || it.source)}" onclick="event.stopPropagation()">↗</a>` : '';
+  // Clicking the row opens a summary card (like the inbox); the ↗ opens the source.
+  return `<div class="row u-${normUrg(it.urgency)}" data-person-item="${esc(it.source + '|' + it.msg_id)}" data-deeplink="${esc(it.deeplink || '')}" style="cursor:pointer">
     <span class="ubar"></span>${glyph(it.source)}
     <span class="row-subj">${esc(it.subject || it.msg_id || '')}</span>
-    ${tag}<span class="row-time">${esc(when)}</span></a>`;
+    ${tag}<span class="row-time">${esc(when)}</span>${openLink}</div>`;
 }
 async function showRollup(id) {
   const dp = $('#detail-pane');
@@ -1384,7 +1392,7 @@ async function showRollup(id) {
     const n = r.open_counts?.[src] || 0;
     return `<span class="tag" style="background:var(--panel-2);color:${n ? 'var(--text)' : 'var(--faint)'}">${esc(label)} <b style="color:${n ? '#ff8f88' : 'var(--faint)'}">${n}</b></span>`;
   };
-  const pills = ['jira', 'freshservice', 'otter'].map(s => countPill(s, s === 'otter' ? 'Otter AR' : SRC[s].label)).join(' ');
+  const pills = ['jira', 'freshservice', 'asana', 'otter'].map(s => countPill(s, s === 'otter' ? 'Otter AR' : SRC[s].label)).join(' ');
 
   // Pinned notes
   const notes = (r.notes || []).map(n =>
@@ -1421,6 +1429,15 @@ async function showRollup(id) {
   };
   $('#note-add').addEventListener('click', addNote);
   $('#note-input').addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });
+  // NEEDS YOU / history rows → open the item's summary card (fall back to source).
+  dp.querySelectorAll('[data-person-item]').forEach(el => el.addEventListener('click', () => {
+    const key = el.dataset.personItem;
+    const src = key.split('|')[0];
+    const it = (state.items[src] || []).find(x => x.key === key);
+    if (it) renderItemDetail(it, id);
+    else if (el.dataset.deeplink) window.open(el.dataset.deeplink, '_blank');
+    else toast('Item not in cache — open in source via ↗');
+  }));
   dp.querySelectorAll('[data-hide-note]').forEach(b => b.addEventListener('click', async () => {
     try { await api(`/api/people/notes/${b.dataset.hideNote}/hide`, { method: 'POST' }); showRollup(id); }
     catch (e) { toast('Hide failed: ' + e.message, true); }

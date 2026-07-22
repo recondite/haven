@@ -1,0 +1,23 @@
+# Asana agent config — Phase 1 (SIM-202)
+# Pulls Garth's incomplete assigned tasks. Tasks persist in Haven only while
+# they remain incomplete + assigned; the poll evicts tasks that leave the set.
+name: asana
+enabled: true
+poll_seconds: 900                 # 15 minutes (driven by orchestrator in main.py)
+
+identity:
+  email: garth@ayarlabs.com       # informational; assignee resolved via /users/me
+
+# Scope: incomplete tasks assigned to me. (Asana's `completed_since=now` returns
+# only incomplete tasks.) Collaborator/followed scopes can be added later.
+scope:
+  assigned_to_me: true
+
+# Hard-skip rules.
+never_keep:
+  # Section/heading pseudo-tasks and tasks in these projects (by name) are dropped.
+  project_names: []
+
+# Pagination
+page_size: 100                    # Asana max is 100
+max_pages: 5                      # 500 task safety cap

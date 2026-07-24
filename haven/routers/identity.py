@@ -27,6 +27,11 @@ async def resolve_jira() -> dict:
     return await identity.resolve_jira()
 
 
+@router.post("/identity/resolve/asana")
+async def resolve_asana() -> dict:
+    return await identity.resolve_asana()
+
+
 @router.get("/identity/coverage")
 async def coverage() -> dict:
     cov = spine.identity_coverage()
@@ -90,8 +95,28 @@ async def rollup(person_id: int) -> dict:
     sb_page = person.get("secondbrain_page")
     sb_body = knowledge.get_page(f"wiki/entities/people/{sb_page}.md") if sb_page else None
 
+    # 1:1 (direct reports only) — next meeting time + linked Google Doc from
+    # Garth's calendar. Best-effort: None if not a report, calendar scope not
+    # granted, or no matching recurring event.
+    one_on_one = None
+    if person.get("is_report") and person.get("name"):
+        from haven.deps import gmail_auth
+        from haven.sources import gcal
+        try:
+            one_on_one = await gcal.next_one_on_one(gmail_auth, person["name"])
+        except Exception as e:  # noqa: BLE001
+            log.debug("1:1 lookup failed for %s: %s", person["name"], e)
+
+    # Bio block from the SecondBrain page, with the person record as fallback.
+    bio = identity.bio_fields(sb_body)
+    bio["name"] = person.get("name")
+    bio["title"] = bio.get("title") or person.get("title")
+    bio["manager"] = bio.get("manager") or person.get("manager")
+    bio["team"] = bio.get("team") or person.get("department")
+
     return {
         "person": person,
+        "bio": bio,                             # name/birthday/hire_date/title/manager/team
         "identities": identities,
         "items": buckets,                       # per-source {open:[], handled:[]}
         "open_counts": open_counts,
@@ -99,6 +124,7 @@ async def rollup(person_id: int) -> dict:
         "last_touch": last_touch,
         "deeplinks": _deeplinks(person, identities),
         "secondbrain": {"page": sb_page, "body": sb_body} if sb_page else None,
+        "one_on_one": one_on_one,               # {summary, next_time, doc_url} for reports, else None
         "notes": spine.list_notes(person_id),
     }
 

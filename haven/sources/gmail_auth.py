@@ -28,11 +28,16 @@ from google_auth_oauthlib.flow import Flow
 # makes — least privilege: it cannot see, edit, or delete the user's other Drive
 # files (that would need full 'drive', deliberately not requested). Delete is
 # never performed regardless (ground rule #1; executor has no delete verb).
+# calendar.readonly (SIM-203) lets the person page read Garth's calendar to find
+# the recurring 1:1 event (next time + linked Doc) for direct reports. Read-only:
+# no event create/edit/delete. Existing tokens lack it — re-run /oauth/authorize
+# once; get_calendar_service() returns None until then.
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/calendar.readonly",
 ]
 
 
@@ -169,6 +174,24 @@ class GmailAuth:
                 self._persist_token(creds.to_json())
             return build("drive", "v3", credentials=creds, cache_discovery=False)
 
+    async def get_calendar_service(self):
+        """Authorized Calendar v3 service (read-only scope). None if unauthorized
+        or the calendar.readonly scope hasn't been granted yet (needs re-auth)."""
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+        if not self.has_required_scopes():
+            return None
+        async with self._refresh_lock:
+            if self._creds is None:
+                self._creds = self.credentials()
+            creds = self._creds
+            if creds is None:
+                return None
+            if creds.expired and creds.refresh_token:
+                await asyncio.to_thread(creds.refresh, Request())
+                self._persist_token(creds.to_json())
+            return build("calendar", "v3", credentials=creds, cache_discovery=False)
+
     def new_http(self, timeout: int = 30):
         """Return a fresh AuthorizedHttp wrapping a brand-new httplib2.Http.
 
@@ -198,7 +221,12 @@ class GmailAuth:
     def credentials(self) -> Optional[Credentials]:
         if not self.is_authed():
             return None
-        return Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
+        # Load with the token's OWN granted scopes (omit SCOPES) so a refresh only
+        # requests what was actually granted. Passing the desired SCOPES here makes
+        # refresh request not-yet-granted scopes (e.g. a newly-added calendar
+        # scope) → Google 'invalid_scope'. The desired set drives the authorize
+        # flow + has_required_scopes() (which reads the file), not refresh.
+        return Credentials.from_authorized_user_file(str(self.token_path))
 
     def has_required_scopes(self) -> bool:
         """True if the persisted token covers all SCOPES we now need.

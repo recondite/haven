@@ -48,6 +48,16 @@ coverage; add/extend tests when you touch it.
 - `data/` — local SQLite + LLM wiki; **append-only**, never unlink files.
 - `.env` — secrets only; gitignored. Copy from `.env.example`.
 
+## Issue tracking
+
+- **Always use Linear** to track issues, bugs, and backlog for Haven — file/update
+  the Linear issue, don't just note it in code comments or the checkpoint. New bugs
+  found, follow-ups deferred, and backlog items all belong in Linear.
+- **Where:** team **SimainTech** (key `SIM`), project **"Haven"**. Issue numbers
+  are shared team-wide (SIM-xxx), so filter by the project, not the `SIM-` number.
+  (Command Center, Nova Home, IA Engine are separate projects in the same team —
+  don't file Haven work there.)
+
 ## Working notes
 
 - This folder is a git repo — check `git status`/diff before and after changes.

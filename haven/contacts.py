@@ -171,6 +171,8 @@ def derive_contacts(
                 company="",
                 item=item,
             )
+        elif src == "asana":
+            continue           # Asana task payloads carry no email; attribute via identity_map gid, not contacts
         elif src == "otter":
             # Each meeting attendee (excluding Garth) gets a touchpoint for this AR.
             for ge in item.get("calendar_guest_emails") or []:

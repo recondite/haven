@@ -152,6 +152,7 @@
   .sg-gmail{background:var(--err-dim);color:#ff8f88} .sg-slack{background:var(--purple-dim);color:var(--purple)}
   .sg-freshservice{background:var(--ok-dim);color:#6fd382} .sg-otter{background:var(--info-dim);color:#79b8ff}
   .sg-jira{background:var(--info-dim);color:#4c9aff}
+  .sg-asana{background:var(--purple-dim);color:#f06a9a}
   .row-sender{font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none;max-width:160px}
   .row-subj{font-size:13px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
   .row-subj .snip{color:var(--muted)}
@@ -371,18 +372,19 @@ async function api(path, opts = {}) {
 }
 
 /* ===================== STATE ===================== */
-const SOURCES = ['gmail', 'slack', 'freshservice', 'otter', 'jira'];
+const SOURCES = ['gmail', 'slack', 'freshservice', 'otter', 'jira', 'asana'];
 const SRC = {
   gmail:        { g: 'GM', label: 'Gmail' },
   slack:        { g: 'SL', label: 'Slack' },
   freshservice: { g: 'FS', label: 'Freshservice' },
   otter:        { g: 'OT', label: 'Otter.ai' },
   jira:         { g: 'JR', label: 'Jira' },
+  asana:        { g: 'AS', label: 'Asana' },
 };
 const state = {
   view: 'inbox',
-  items: { gmail: [], slack: [], freshservice: [], otter: [], jira: [] },   // normalized
-  loaded: { gmail: false, slack: false, freshservice: false, otter: false, jira: false },
+  items: { gmail: [], slack: [], freshservice: [], otter: [], jira: [], asana: [] },   // normalized
+  loaded: { gmail: false, slack: false, freshservice: false, otter: false, jira: false, asana: false },
   approvals: { drafts: [], dry_run: false },
   auth: {},              // source -> status payload (or {error})
   watchlist: [],
@@ -399,6 +401,7 @@ const state = {
   selected: new Set(),  // multi-select: item keys checked for bulk actions
   selKey: null,          // inbox selection: "source|msg_id"
   selDraft: null,        // approvals selection: draft id
+  apprView: null,        // approvals detail mode: 'item' (inbound sign-off) | 'draft' | null
   sse: { live: false, lastEvent: 0 },
 };
 
@@ -507,6 +510,7 @@ function selectedItem() { return state.selKey ? findItem(state.selKey) : null; }
 function whyNow(it) {
   const r = it.raw, parts = [];
   if (r.watchlist_match) parts.push('watchlist hit: "' + r.watchlist_match + '"');
+  if (r.garth_added) parts.push('you were added to this thread');
   if (r.is_priority_approval) parts.push('blocks spend — approval chain stops at you');
   if (r.is_elt) parts.push('ELT sender');
   else if (r.is_team) parts.push('team sender');
@@ -573,6 +577,7 @@ document.querySelectorAll('.nav-item[data-view]').forEach(b => b.addEventListene
 function setView(v) {
   state.view = v;
   if (v === 'inbox') state.pillFilter = null;   // plain Inbox nav = unfiltered
+  if (v === 'approvals') state.apprView = null; // land on the drafts detail, not a stale item card
   if (location.hash.startsWith('#person/')) history.replaceState(null, '', location.pathname);
   render();
 }
@@ -598,7 +603,12 @@ function togglePill(key) {
   render();
 }
 document.querySelectorAll('.count-pill[data-pill]').forEach(p =>
-  p.addEventListener('click', () => togglePill(p.dataset.pill)));
+  p.addEventListener('click', () => {
+    // "Approve" is its own screen now (merged with the Approvals view); the rest
+    // stay as inbox filters.
+    if (p.dataset.pill === 'approval') setView('approvals');
+    else togglePill(p.dataset.pill);
+  }));
 document.querySelector('[data-arnav]').addEventListener('click', () => {
   state.pillFilter = 'ar'; state.view = 'inbox'; render();
 });
@@ -706,11 +716,14 @@ function renderChrome() {
   const threadCount = threadGroups(vis).length;
   $('#badge-inbox').textContent = threadCount;
   $('#badge-inbox').classList.toggle('hot', threadCount > 0);
+  // Approvals badge = inbound sign-offs + outbound drafts (the merged screen total).
   const pend = state.approvals.drafts.length;
-  $('#badge-appr').textContent = pend;
-  $('#badge-appr').classList.toggle('amber', pend > 0);
+  const inboundAppr = allItems().filter(i => i.tag === 'approval' && !i.raw.handled_at && !isSnoozed(i)).length;
+  const apprTotal = inboundAppr + pend;
+  $('#badge-appr').textContent = apprTotal;
+  $('#badge-appr').classList.toggle('amber', apprTotal > 0);
   $('#cnt-ar').textContent = vis.filter(i => i.raw.action_required).length;
-  $('#cnt-appr').textContent = vis.filter(i => i.tag === 'approval').length;
+  $('#cnt-appr').textContent = inboundAppr;
   $('#cnt-reply').textContent = vis.filter(i => i.raw.reply_needed).length;
   $('#cnt-watch').textContent = vis.filter(i => i.raw.watchlist_match).length;
 
@@ -936,14 +949,18 @@ function ingestPayload(it) {
            body, source: `${it.source}:${it.id}` };
 }
 function kvRow(k, v) { return v ? `<span class="k">${esc(k)}</span><span class="v">${v}</span>` : ''; }
-function renderItemDetail() {
+function renderItemDetail(itemArg, backTo) {
   const dp = $('#detail-pane');
-  const it = selectedItem();
-  if (!it || !visibleItems().includes(it)) {
+  const it = itemArg || selectedItem();
+  if (!it || (!itemArg && !visibleItems().includes(it))) {
     dp.innerHTML = `<div class="dp-placeholder">Select an item to see full context and actions.<br><br>
       <span class="k">j</span> <span class="k">k</span> navigate &nbsp; <span class="k">e</span> done &nbsp; <span class="k">s</span> snooze &nbsp; <span class="k">c</span> linear &nbsp; <span class="k">d</span> draft</div>`;
     return;
   }
+  // backTo is a token: "person:<id>" or "approvals" (or null for no back button).
+  const backLabel = backTo === 'approvals' ? '← Back to Approvals' : '← Back to person';
+  const backBtn = backTo
+    ? `<button class="btn btn-ghost" data-back="${esc(backTo)}" style="margin-bottom:10px">${backLabel}</button>` : '';
   const r = it.raw, s = SRC[it.source];
   const why = whyNow(it);
   const from = r.sender_email || r.channel_name || r.meeting_title || '';
@@ -957,6 +974,7 @@ function renderItemDetail() {
     : '';
 
   dp.innerHTML = `<div class="dp">
+    ${backBtn}
     <div class="dp-eyebrow">${glyph(it.source)}<span style="font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.label)}${from ? ' · ' + esc(from) : ''}</span><span class="tag ${tagClass(it.tag)}" style="margin-left:auto">${esc(it.tag || '—')}</span></div>
     <h2 class="dp-subject">${esc(it.subject)}</h2>
     <div class="dp-meta">From <b>${esc(it.sender)}</b> · ${age(it.ts)} ago · urgency <b style="text-transform:capitalize">${esc(it.urg)}</b>${r.handled_at ? ' · <b style="color:var(--ok)">handled</b>' : ''}</div>
@@ -989,7 +1007,7 @@ function renderItemDetail() {
       ${r.linear_id
         ? `<a class="btn btn-ghost" href="${esc(r.linear_url || '#')}" target="_blank" rel="noopener">▤ Open in Linear</a>
            ${r.linear_closed_at ? '' : `<button class="btn btn-ghost" data-act="linear-close">Close issue</button>`}`
-        : (it.source === 'jira' ? '' : `<button class="btn btn-ghost" data-act="linear">▤ Capture to Linear</button>`)}
+        : (it.source === 'jira' || it.source === 'asana' ? '' : `<button class="btn btn-ghost" data-act="linear">▤ Capture to Linear</button>`)}
       <button class="btn btn-primary" data-act="draft" ${canDraftReply ? '' : 'disabled title="Draft agents for this source ship soon — Slack + Gmail for now"'}>✎ Draft reply${canDraftReply ? '' : ' (soon)'}</button>
       <button class="btn btn-ghost" data-act="secondbrain" title="Draft this item into SecondBrain — review in Approvals before it writes">→ SecondBrain</button>
       ${it.source === 'gmail' ? `<button class="btn btn-ghost" data-act="eval" title="Confirm this item's tag/urgency as a golden eval case">＋ Eval case</button>
@@ -997,6 +1015,12 @@ function renderItemDetail() {
     </div>
   </div>`;
   dp.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => itemAction(it, b.dataset.act)));
+  const back = dp.querySelector('[data-back]');
+  if (back) back.addEventListener('click', () => {
+    const t = back.dataset.back;
+    if (t.startsWith('person:')) showRollup(Number(t.slice(7)));
+    else if (t === 'approvals') setView('approvals');
+  });
 }
 
 /* ---------- ITEM ACTIONS (optimistic + API) ---------- */
@@ -1069,29 +1093,56 @@ function draftTitle(d) {
 }
 function renderApprovals() {
   const drafts = state.approvals.drafts;
+  // Section 1 — inbound items needing Garth's sign-off (tag=approval), all sources.
+  const inbound = allItems()
+    .filter(i => i.tag === 'approval' && !i.raw.handled_at && !isSnoozed(i))
+    .sort((a, b) => b.ts - a.ts);
   if (state.selDraft == null || !drafts.some(d => d.id === state.selDraft)) state.selDraft = drafts.length ? drafts[0].id : null;
-  let h = `<div class="group-hd"><span class="gdot" style="background:var(--warn)"></span>Pending review <span class="gcount">${drafts.length}</span></div>`;
+
+  let h = `<div class="group-hd"><span class="gdot" style="background:var(--warn)"></span>Needs your approval <span class="gcount">${inbound.length}</span></div>`;
+  h += inbound.length
+    ? inbound.map(it => rowHTML(it)).join('')
+    : '<div style="padding:6px 18px;font-size:11.5px;color:var(--faint)">No incoming approvals right now.</div>';
+  h += `<div class="group-hd"><span class="gdot" style="background:var(--accent)"></span>Drafts to send <span class="gcount">${drafts.length}</span></div>`;
   if (drafts.length) {
-    h += drafts.map(d => `<div class="appr-card ${state.selDraft === d.id ? 'sel' : ''}" data-id="${d.id}">
+    h += drafts.map(d => `<div class="appr-card ${state.apprView !== 'item' && state.selDraft === d.id ? 'sel' : ''}" data-id="${d.id}">
       <div class="appr-l1">${SRC[d.kind] ? glyph(d.kind) : ''}<span class="appr-to">${esc(draftTitle(d))}</span><span class="appr-via">#${d.id}${d.job_id != null ? ' · job ' + d.job_id : ''}</span><span class="appr-time">${esc(d.created_at || '')}</span></div>
       <div class="appr-preview">${esc(d.payload || '')}</div>
     </div>`).join('');
   } else {
-    h += '<div class="empty"><div class="big">✓</div>Approval queue clear — no drafts pending.<br><span style="font-size:11.5px;color:var(--faint)">Run "Draft reply" on a Slack item to generate one.</span></div>';
+    h += '<div style="padding:6px 18px;font-size:11.5px;color:var(--faint)">No drafts pending — run "Draft reply" on a Slack/Gmail item to generate one.</div>';
   }
   $('#list-pane').innerHTML = h;
+  $('#list-pane').querySelectorAll('.row[data-key]').forEach(el =>
+    el.addEventListener('click', () => { state.apprView = 'item'; state.selKey = el.dataset.key; render(); }));
   $('#list-pane').querySelectorAll('.appr-card').forEach(el =>
-    el.addEventListener('click', () => { state.selDraft = Number(el.dataset.id); render(); }));
-  renderApprDetail();
+    el.addEventListener('click', () => { state.apprView = 'draft'; state.selDraft = Number(el.dataset.id); render(); }));
+
+  if (state.apprView === 'item') {
+    const it = findItem(state.selKey);
+    if (it) renderItemDetail(it, 'approvals'); else renderApprDetail();
+  } else {
+    renderApprDetail();
+  }
 }
 function renderApprDetail() {
   const dp = $('#detail-pane');
   const d = state.approvals.drafts.find(x => x.id === state.selDraft);
   if (!d) { dp.innerHTML = '<div class="dp-placeholder">Select a draft to review its evidence and approve or reject.<br><br><span class="k">a</span> approve &nbsp; <span class="k">r</span> reject</div>'; return; }
   const ev = Array.isArray(d.evidence) ? d.evidence : [];
+  // Original item this reply is grounded in (kind 'email' -> gmail source; target = its msg_id).
+  const origSrc = d.kind === 'email' ? 'gmail' : d.kind;
+  const origIt = d.target ? findItem(`${origSrc}|${d.target}`) : null;
+  const origDl = origIt && origIt.raw ? origIt.raw.deeplink : '';
+  const origRow = (origIt || origDl) ? `<div style="margin:6px 0 12px;display:flex;gap:8px;align-items:center">
+    <span class="k" style="color:var(--muted)">Original</span>
+    ${origIt ? `<button class="btn btn-ghost" data-appr="review-original">📄 Review original here</button>` : ''}
+    ${origDl ? `<a class="btn btn-ghost" href="${esc(origDl)}" target="_blank" rel="noopener">Open in ${esc(SRC[origSrc] ? SRC[origSrc].label : origSrc)} ↗</a>` : ''}
+  </div>` : '';
   dp.innerHTML = `<div class="dp">
     <div class="dp-eyebrow">${SRC[d.kind] ? glyph(d.kind) : ''}<span style="font-size:11.5px;color:var(--muted)">draft #${d.id} · ${esc(d.kind || '')}${d.created_at ? ' · ' + esc(d.created_at) : ''}</span></div>
     <h2 class="dp-subject">${esc(draftTitle(d))}</h2>
+    ${origRow}
     <div class="sec-title">Draft${d.original_payload && d.original_payload !== d.payload ? ' <span style="color:var(--warn);font-size:10px">· edited</span>' : ''}</div>
     ${state.editingDraft === d.id
       ? `<textarea class="draft-edit" id="draft-edit-ta">${esc(d.payload || '')}</textarea>`
@@ -1126,6 +1177,14 @@ function renderApprDetail() {
 }
 async function approvalAction(id, act) {
   try {
+    if (act === 'review-original') {
+      const d = state.approvals.drafts.find(x => x.id === id);
+      const src = d && d.kind === 'email' ? 'gmail' : (d ? d.kind : '');
+      const it = d && d.target ? findItem(`${src}|${d.target}`) : null;
+      if (it) renderItemDetail(it, 'approvals');       // back button returns to the draft
+      else toast('Original not in cache — use "Open in …" to view at the source');
+      return;
+    }
     if (act === 'edit') { state.editingDraft = id; render(); return; }
     if (act === 'cancel') { state.editingDraft = null; render(); return; }
     if (act === 'save') {
@@ -1328,13 +1387,14 @@ function renderPeople() {
   if (!$('#detail-pane').innerHTML) $('#detail-pane').innerHTML = '<div class="dp-placeholder">Select a person for their rollup.</div>';
 }
 function personItemRow(it) {
-  const dl = it.deeplink ? ` href="${esc(it.deeplink)}" target="_blank" rel="noopener"` : '';
   const tag = it.tag ? `<span class="tag ${tagClass(String(it.tag).toLowerCase())}">${esc(it.tag)}</span>` : '';
   const when = it.date ? age(new Date(it.date).getTime() / 1000) : '';
-  return `<a class="row u-${normUrg(it.urgency)}"${dl} style="text-decoration:none">
+  const openLink = it.deeplink ? `<a class="row-time" href="${esc(it.deeplink)}" target="_blank" rel="noopener" title="Open in ${esc(SRC[it.source]?.label || it.source)}" onclick="event.stopPropagation()">↗</a>` : '';
+  // Clicking the row opens a summary card (like the inbox); the ↗ opens the source.
+  return `<div class="row u-${normUrg(it.urgency)}" data-person-item="${esc(it.source + '|' + it.msg_id)}" data-deeplink="${esc(it.deeplink || '')}" style="cursor:pointer">
     <span class="ubar"></span>${glyph(it.source)}
     <span class="row-subj">${esc(it.subject || it.msg_id || '')}</span>
-    ${tag}<span class="row-time">${esc(when)}</span></a>`;
+    ${tag}<span class="row-time">${esc(when)}</span>${openLink}</div>`;
 }
 async function showRollup(id) {
   const dp = $('#detail-pane');
@@ -1366,10 +1426,33 @@ async function showRollup(id) {
   // Last touch line
   const lt = Object.entries(r.last_touch || {}).map(([s, d]) => `${SRC[s]?.label || s} ${age(new Date(d).getTime()/1000)}`).join(' · ');
 
+  // 1:1 row (direct reports only) — next meeting time + linked Google Doc.
+  const o = r.one_on_one;
+  const oneOnOne = o ? `<div style="margin-bottom:10px;font-size:12px;color:var(--text-2)">
+    <span class="k" style="color:var(--muted)">1:1</span>
+    ${o.next_time ? esc(new Date(o.next_time).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) : 'no upcoming'}
+    ${o.doc_url ? ` · <a href="${esc(o.doc_url)}" target="_blank" rel="noopener">1:1 doc ↗</a>` : ''}
+  </div>` : (p.is_report ? `<div style="margin-bottom:10px;font-size:11px;color:var(--faint)">1:1 — none found (grant calendar scope via re-auth if expected)</div>` : '');
+
   // SecondBrain panel
   const sb = r.secondbrain && r.secondbrain.body
     ? `<div class="sec-title">SecondBrain</div><pre style="white-space:pre-wrap;font-size:11.5px;color:var(--text-2);background:var(--panel-2);padding:10px;border-radius:6px;max-height:280px;overflow:auto">${esc(r.secondbrain.body)}</pre>`
     : (r.secondbrain ? `<div class="sec-title">SecondBrain</div><div style="font-size:11.5px;color:var(--faint)">page <code>${esc(r.secondbrain.page)}</code> not found on disk</div>` : '');
+
+  // Bio block (from SecondBrain page, person-record fallback) + count pills.
+  const b = r.bio || {};
+  const bioRow = (k, v) => v ? `<span class="k">${esc(k)}</span><span class="v">${esc(v)}</span>` : '';
+  const bioGrid = [
+    bioRow('Team', b.team), bioRow('Manager', b.manager),
+    bioRow('Hire date', b.hire_date), bioRow('Birthday', b.birthday),
+    bioRow('Location', b.location),
+  ].filter(Boolean).join('');
+  // "Additional info" pills: open counts per ticket source (Asana lands later).
+  const countPill = (src, label) => {
+    const n = r.open_counts?.[src] || 0;
+    return `<span class="tag" style="background:var(--panel-2);color:${n ? 'var(--text)' : 'var(--faint)'}">${esc(label)} <b style="color:${n ? '#ff8f88' : 'var(--faint)'}">${n}</b></span>`;
+  };
+  const pills = ['jira', 'freshservice', 'asana', 'otter'].map(s => countPill(s, s === 'otter' ? 'Otter AR' : SRC[s].label)).join(' ');
 
   // Pinned notes
   const notes = (r.notes || []).map(n =>
@@ -1379,11 +1462,14 @@ async function showRollup(id) {
     || '<div style="font-size:11.5px;color:var(--faint)">none yet</div>';
 
   dp.innerHTML = `<div class="dp">
-    <div class="dp-eyebrow"><span style="font-size:11.5px;color:var(--muted)">${esc(p.department || '')}${p.is_report ? ' · GT report' : ''}</span><span class="tag" style="margin-left:auto;background:var(--err-dim);color:#ff8f88">${r.open_total} open</span></div>
-    <h2 class="dp-subject">${esc(p.name)}</h2>
-    <div style="color:var(--text-2);font-size:12.5px;margin-bottom:4px">${esc(p.title || '')}</div>
-    <div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">${esc(p.work_email || 'no email on file')} · mgr ${esc(p.manager || '—')} · ${ids}</div>
+    <div class="dp-eyebrow"><span style="font-size:11.5px;color:var(--muted)">${esc(b.team || p.department || '')}${p.is_report ? ' · GT report' : ''}</span><span class="tag" style="margin-left:auto;background:var(--err-dim);color:#ff8f88">${r.open_total} open</span></div>
+    <h2 class="dp-subject">${esc(b.name || p.name)}</h2>
+    <div style="color:var(--text-2);font-size:12.5px;margin-bottom:6px">${esc(b.title || p.title || '')}</div>
+    <div class="kv" style="margin-bottom:8px">${bioGrid}</div>
+    <div style="color:var(--muted);font-size:11.5px;margin-bottom:8px">${esc(p.work_email || 'no email on file')} · ${ids}</div>
+    <div style="margin-bottom:10px">${pills}</div>
     ${lt ? `<div style="color:var(--faint);font-size:11px;margin-bottom:10px">Last touch: ${esc(lt)}</div>` : ''}
+    ${oneOnOne}
     ${dlRow ? `<div style="margin-bottom:12px">${dlRow}</div>` : ''}
     <div class="sec-title" style="color:#ff8f88">Needs you · ${open.length}</div>${needs}
     ${sb}
@@ -1404,6 +1490,15 @@ async function showRollup(id) {
   };
   $('#note-add').addEventListener('click', addNote);
   $('#note-input').addEventListener('keydown', e => { if (e.key === 'Enter') addNote(); });
+  // NEEDS YOU / history rows → open the item's summary card (fall back to source).
+  dp.querySelectorAll('[data-person-item]').forEach(el => el.addEventListener('click', () => {
+    const key = el.dataset.personItem;
+    const src = key.split('|')[0];
+    const it = (state.items[src] || []).find(x => x.key === key);
+    if (it) renderItemDetail(it, 'person:' + id);
+    else if (el.dataset.deeplink) window.open(el.dataset.deeplink, '_blank');
+    else toast('Item not in cache — open in source via ↗');
+  }));
   dp.querySelectorAll('[data-hide-note]').forEach(b => b.addEventListener('click', async () => {
     try { await api(`/api/people/notes/${b.dataset.hideNote}/hide`, { method: 'POST' }); showRollup(id); }
     catch (e) { toast('Hide failed: ' + e.message, true); }

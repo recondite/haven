@@ -172,6 +172,7 @@ _KIND_BY_SOURCE = {
     "freshservice": "ticket",
     "otter": "ar",
     "jira": "issue",
+    "asana": "task",
 }
 
 # Fields the item row projects from the cached payload; used for both upsert and diff.

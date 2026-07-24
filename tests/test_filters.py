@@ -21,6 +21,39 @@ def _set_config(monkeypatch, cfg):
     monkeypatch.setattr(filters, "load_config", lambda: cfg)
 
 
+class TestGarthAdded:
+    @pytest.mark.parametrize("text", [
+        "Adding Garth for visibility",
+        "Looping in Garth on this one",
+        "Pulling Garth into the thread",
+        "cc Garth",
+        "Garth, looping you in",
+        "Hi team — adding you to this thread",
+        "Looping you in Garth",
+        "+Garth",
+        "@garth can you weigh in",
+    ])
+    def test_matches(self, text):
+        assert filters.garth_added_match(text) is not None
+
+    @pytest.mark.parametrize("text", [
+        "The quarterly report is attached",
+        "Gareth from vendor will follow up",   # not 'garth', no add-verb+you
+        "Garth's calendar is full",            # mentions name, no add verb
+    ])
+    def test_no_false_match(self, text):
+        assert filters.garth_added_match(text) is None
+
+    def test_scans_body_not_just_subject(self):
+        assert filters.garth_added_match("Re: PDK", "", "Hey, adding Garth so he can approve") is not None
+
+    def test_apply_filter_flags_and_accepts(self, monkeypatch):
+        payload = {"subject": "Re: tapeout", "snippet": "looping you in on the budget", "body_text": ""}
+        decision, reason, flags = filters.apply_filter(payload)
+        assert decision == Decision.ACCEPT
+        assert "garth_added" in flags
+
+
 class TestIsBlocked:
     def test_blocked_sender(self, monkeypatch):
         monkeypatch.setattr(filters, "_load_blocklist",

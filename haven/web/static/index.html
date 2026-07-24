@@ -510,6 +510,7 @@ function selectedItem() { return state.selKey ? findItem(state.selKey) : null; }
 function whyNow(it) {
   const r = it.raw, parts = [];
   if (r.watchlist_match) parts.push('watchlist hit: "' + r.watchlist_match + '"');
+  if (r.garth_added) parts.push('you were added to this thread');
   if (r.is_priority_approval) parts.push('blocks spend — approval chain stops at you');
   if (r.is_elt) parts.push('ELT sender');
   else if (r.is_team) parts.push('team sender');

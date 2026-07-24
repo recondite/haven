@@ -220,6 +220,15 @@ async def run(force: bool = False) -> dict:
             payload["urgency"] = "urgent"
             payload["action_required"] = True
 
+        # Garth explicitly added/looped into a thread → priority, regardless of
+        # LLM judgment. Keep the LLM's tag (unless it called it noise), but pin
+        # urgency high and mark action-required so it never gets buried.
+        if flags.get("garth_added"):
+            payload["urgency"] = "urgent"
+            payload["action_required"] = True
+            if payload.get("tag") == "noise":
+                payload["tag"] = "action"
+
         # Travel notifications (flagged by the deterministic filter) are pinned
         # to tag="travel" regardless of what the LLM guessed — they're never
         # noise — and get the "travel" Gmail label below.

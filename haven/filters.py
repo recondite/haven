@@ -253,6 +253,35 @@ def travel_match(
     return None
 
 
+# When someone explicitly pulls Garth into a thread/ticket ("adding Garth",
+# "looping you in", "+Garth"), that's a high-signal ask he owns the next move on
+# — pinned to priority regardless of LLM judgment. Every item here is already in
+# Garth's inbox, so second-person ("adding you", "looping you in") counts too.
+# ponytail: hardcoded name; move to gmail.yaml if a second watched name is ever needed.
+_ADD_VERB = r"(?:add(?:ing|ed)?|loop(?:ing|ed)?|pull(?:ing|ed)?|bring(?:ing)?|cc(?:'?ing|'?d)?|includ(?:ing|ed))"
+_GARTH_ADDED_RES = [
+    # "adding Garth", "looping in Garth", "pull Garth in", "cc Garth"
+    re.compile(_ADD_VERB + r"\b[^.\n]{0,25}\bgarth\b", re.IGNORECASE),
+    # second person, inbox is Garth's: "looping you in", "adding you to", "cc you"
+    re.compile(_ADD_VERB + r"\s+(?:in\s+)?you\b", re.IGNORECASE),
+    # "Garth, adding you" / "Garth — looping you in"
+    re.compile(r"\bgarth\b\s*[,\-–—]?\s*" + _ADD_VERB + r"\b", re.IGNORECASE),
+    # explicit mention: "+Garth" / "@Garth"
+    re.compile(r"[+@]\s?garth\b", re.IGNORECASE),
+]
+
+
+def garth_added_match(*texts: str) -> str | None:
+    """Return a short reason if any text says Garth is being added/looped into
+    this thread, else None. Scans subject/snippet/body."""
+    blob = " ".join(t for t in texts if t)
+    for rx in _GARTH_ADDED_RES:
+        m = rx.search(blob)
+        if m:
+            return f"added to thread ({m.group(0).strip()[:40]})"
+    return None
+
+
 def urgent_approval_match(
     cfg: dict, subject: str = "", sender_domain: str = "", sender_email: str = ""
 ) -> str | None:
@@ -335,6 +364,14 @@ def apply_filter(payload: dict[str, Any]) -> tuple[str, str, dict]:
     if matched_kw:
         flags["watchlist_match"] = matched_kw
         return Decision.ACCEPT, f"watchlist: {matched_kw}", flags
+
+    # ─── Garth added/looped-in → force-keep + priority ──────
+    # Someone explicitly pulled Garth into this thread; the poll pipeline pins it
+    # to urgency="urgent". Scan subject + snippet + body.
+    added = garth_added_match(subject, payload.get("snippet") or "", payload.get("body_text") or "")
+    if added:
+        flags["garth_added"] = added
+        return Decision.ACCEPT, f"garth added: {added}", flags
 
     # ─── Label-based keep (beats never_keep) ─────────────────
     # Anything the user has tagged with a configured label in Gmail is auto-kept,
